@@ -1,0 +1,55 @@
+# AI Harness Configuration
+# Supports: copilot, openai, or any OpenAI-compatible endpoint
+
+model:
+  provider: copilot
+  name: gpt-4o
+  max_tokens: 4096
+  temperature: 0.7
+  api_key_env: GITHUB_TOKEN
+  # base_url: https://api.githubcopilot.com  # Override if needed
+
+context:
+  max_history: 50
+  max_tokens: 128000
+  system_prompt: |
+    You are a helpful AI assistant powered by the AI Harness.
+    You have access to tools and can help with a variety of tasks.
+    Be concise and helpful.
+
+tools:
+  - name: current_time
+    description: Get the current date and time
+    parameters: {}
+
+  - name: echo
+    description: Echo back a message
+    parameters:
+      message:
+        type: string
+        description: Message to echo back
+        required: true
+
+  - name: calculate
+    description: Perform basic arithmetic
+    parameters:
+      operation:
+        type: string
+        description: "Operation: add, subtract, multiply, divide"
+        required: true
+      a:
+        type: number
+        description: First number
+        required: true
+      b:
+        type: number
+        description: Second number
+        required: true
+
+hooks:
+  - event: tool.pre
+    handler: audit_log
+  - event: session.start
+    handler: session_log
+  - event: session.end
+    handler: session_end_log
