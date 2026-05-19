@@ -1,6 +1,9 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -36,7 +39,6 @@ hooks:
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if cfg.Model.Provider != "copilot" {
 		t.Fatalf("expected provider 'copilot', got %q", cfg.Model.Provider)
 	}
@@ -52,11 +54,8 @@ hooks:
 	if cfg.Context.SystemPrompt != "You are a coding assistant." {
 		t.Fatalf("unexpected system prompt: %s", cfg.Context.SystemPrompt)
 	}
-	if len(cfg.Tools) != 1 {
-		t.Fatalf("expected 1 tool, got %d", len(cfg.Tools))
-	}
-	if cfg.Tools[0].Name != "read_file" {
-		t.Fatalf("expected tool 'read_file', got %q", cfg.Tools[0].Name)
+	if len(cfg.Tools) != 1 || cfg.Tools[0].Name != "read_file" {
+		t.Fatalf("unexpected tools: %+v", cfg.Tools)
 	}
 	if len(cfg.Hooks) != 1 {
 		t.Fatalf("expected 1 hook, got %d", len(cfg.Hooks))
@@ -68,7 +67,6 @@ func TestParseDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if cfg.Model.Name != "gpt-4o" {
 		t.Fatalf("expected default model name 'gpt-4o', got %q", cfg.Model.Name)
 	}
@@ -108,11 +106,72 @@ func TestBaseURL(t *testing.T) {
 		{"custom", "https://my-api.com", "https://my-api.com"},
 		{"", "", "https://api.openai.com/v1"},
 	}
-
 	for _, tt := range tests {
-		cfg := &Config{Model: ModelConfig{Provider: tt.provider, BaseURL: tt.baseURL}}
+		cfg := &Config{Model: ModelConfig{Provider: tt.provider, BaseURL: tt.baseURL, Name: "gpt-4o", MaxTokens: 1, Temperature: 1}}
 		if got := cfg.BaseURL(); got != tt.expected {
 			t.Errorf("provider=%q baseURL=%q: expected %q, got %q", tt.provider, tt.baseURL, tt.expected, got)
+		}
+	}
+}
+
+func TestResolveAPIKey(t *testing.T) {
+	const keyName = "AI_HARNESS_TEST_KEY"
+	old := os.Getenv(keyName)
+	if err := os.Setenv(keyName, "secret-value"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	defer func() {
+		_ = os.Setenv(keyName, old)
+	}()
+
+	cfg := &Config{Model: ModelConfig{APIKeyEnv: keyName}}
+	if got := cfg.ResolveAPIKey(); got != "secret-value" {
+		t.Fatalf("expected env value, got %q", got)
+	}
+}
+
+func TestLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "harness.yaml")
+	data := []byte("model:\n  name: gpt-4o-mini\n  max_tokens: 1024\n  temperature: 0.4\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Model.Name != "gpt-4o-mini" {
+		t.Fatalf("unexpected model: %q", cfg.Model.Name)
+	}
+}
+
+func TestValidate(t *testing.T) {
+	cfg := &Config{
+		Model: ModelConfig{Name: "gpt-4o", MaxTokens: 512, Temperature: 1},
+		Tools: []ToolConfig{{Name: "echo"}},
+		Hooks: []HookConfig{{Event: "tool.pre", Handler: "audit_log"}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateFailures(t *testing.T) {
+	cfg := &Config{
+		Model: ModelConfig{Name: "", MaxTokens: 0, Temperature: 3},
+		Tools: []ToolConfig{{Name: "dup"}, {Name: "dup"}, {Name: "   "}},
+		Hooks: []HookConfig{{Event: "not-real", Handler: "noop"}},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	for _, want := range []string{"model.name cannot be empty", "model.temperature must be between 0 and 2", "model.max_tokens must be greater than 0", "tool \"dup\" is defined more than once", "name cannot be empty", "hooks[0].event \"not-real\" is invalid"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expected %q in error, got %v", want, err)
 		}
 	}
 }
@@ -128,5 +187,12 @@ func TestParseInvalidJSON(t *testing.T) {
 	_, err := ParseJSON([]byte(`not json`))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestParseRejectsInvalidConfig(t *testing.T) {
+	_, err := Parse([]byte("model:\n  temperature: 9\n"))
+	if err == nil {
+		t.Fatal("expected validation error")
 	}
 }

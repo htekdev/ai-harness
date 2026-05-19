@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/htekdev/ai-harness/completion"
@@ -19,38 +20,30 @@ func setupTestAgent(handler http.HandlerFunc) *Agent {
 	client := completion.NewClient(completion.ClientConfig{
 		BaseURL:    server.URL,
 		APIKey:     "test-key",
-		MaxRetries: 0,
+		MaxRetries: 1,
 	})
 
 	registry := tools.NewRegistry()
-	registry.Register(tools.Definition{
+	_ = registry.Register(tools.Definition{
 		Name:        "greet",
 		Description: "Greet someone",
 		Parameters:  []tools.Parameter{{Name: "name", Type: tools.TypeString, Required: true}},
 	}, func(ctx context.Context, args json.RawMessage) (string, error) {
 		var params struct{ Name string }
-		json.Unmarshal(args, &params)
+		_ = json.Unmarshal(args, &params)
 		return "Hello, " + params.Name + "!", nil
 	})
 
-	ctxMgr := agentctx.NewManager(agentctx.Config{
-		SystemPrompt: "You are a test assistant.",
-	})
+	ctxMgr := agentctx.NewManager(agentctx.Config{SystemPrompt: "You are a test assistant."})
 
-	return New(Options{
-		Client:  client,
-		Tools:   registry,
-		Context: ctxMgr,
-	})
+	return New(Options{Client: client, Tools: registry, Context: ctxMgr})
 }
 
 func TestRunSimpleResponse(t *testing.T) {
 	agent := setupTestAgent(func(w http.ResponseWriter, r *http.Request) {
 		resp := completion.Response{
-			Choices: []completion.Choice{
-				{Message: completion.Message{Role: completion.RoleAssistant, Content: "I'm here to help!"}, FinishReason: "stop"},
-			},
-			Usage: completion.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+			Choices: []completion.Choice{{Message: completion.Message{Role: completion.RoleAssistant, Content: "I'm here to help!"}, FinishReason: "stop"}},
+			Usage:   completion.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
 		}
 		json.NewEncoder(w).Encode(resp)
 	})
@@ -67,41 +60,50 @@ func TestRunSimpleResponse(t *testing.T) {
 	}
 }
 
+func TestRunTurnStartModifyHook(t *testing.T) {
+	var captured string
+	agent := setupTestAgent(func(w http.ResponseWriter, r *http.Request) {
+		var req completion.Request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		captured = req.Messages[len(req.Messages)-1].Content
+		json.NewEncoder(w).Encode(completion.Response{Choices: []completion.Choice{{Message: completion.Message{Role: completion.RoleAssistant, Content: "modified"}, FinishReason: "stop"}}})
+	})
+
+	agent.Hooks().Register(hooks.Registration{
+		Name:  "modifier",
+		Event: hooks.EventTurnStart,
+		Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
+			return hooks.Result{Action: hooks.ActionModify, Payload: "rewritten input"}
+		},
+	})
+
+	_, err := agent.Run(context.Background(), "original input")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured != "rewritten input" {
+		t.Fatalf("expected modified input, got %q", captured)
+	}
+}
+
 func TestRunWithToolCall(t *testing.T) {
 	callCount := 0
 	agent := setupTestAgent(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var resp completion.Response
-
 		if callCount == 1 {
-			// First call: model requests a tool call
-			resp = completion.Response{
-				Choices: []completion.Choice{
-					{
-						Message: completion.Message{
-							Role: completion.RoleAssistant,
-							ToolCalls: []completion.ToolCall{
-								{
-									ID:   "call_1",
-									Type: "function",
-									Function: completion.FunctionCall{
-										Name:      "greet",
-										Arguments: `{"name":"World"}`,
-									},
-								},
-							},
-						},
-						FinishReason: "tool_calls",
-					},
-				},
-			}
+			resp = completion.Response{Choices: []completion.Choice{{
+				Message: completion.Message{Role: completion.RoleAssistant, ToolCalls: []completion.ToolCall{{
+					ID:       "call_1",
+					Type:     "function",
+					Function: completion.FunctionCall{Name: "greet", Arguments: `{"name":"World"}`},
+				}}},
+				FinishReason: "tool_calls",
+			}}}
 		} else {
-			// Second call: model responds after tool result
-			resp = completion.Response{
-				Choices: []completion.Choice{
-					{Message: completion.Message{Role: completion.RoleAssistant, Content: "I greeted the world for you!"}, FinishReason: "stop"},
-				},
-			}
+			resp = completion.Response{Choices: []completion.Choice{{Message: completion.Message{Role: completion.RoleAssistant, Content: "I greeted the world for you!"}, FinishReason: "stop"}}}
 		}
 		json.NewEncoder(w).Encode(resp)
 	})
@@ -113,17 +115,32 @@ func TestRunWithToolCall(t *testing.T) {
 	if result.Response != "I greeted the world for you!" {
 		t.Fatalf("unexpected response: %s", result.Response)
 	}
-	if len(result.ToolCalls) != 1 {
-		t.Fatalf("expected 1 tool call, got %d", len(result.ToolCalls))
+	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "greet" {
+		t.Fatalf("unexpected tool calls: %+v", result.ToolCalls)
 	}
-	if result.ToolCalls[0].Name != "greet" {
-		t.Fatalf("unexpected tool name: %s", result.ToolCalls[0].Name)
+	if len(result.ToolResults) != 1 || result.ToolResults[0].Content != "Hello, World!" {
+		t.Fatalf("unexpected tool results: %+v", result.ToolResults)
 	}
-	if len(result.ToolResults) != 1 {
-		t.Fatalf("expected 1 tool result, got %d", len(result.ToolResults))
+}
+
+func TestRunMaxIterationsLimit(t *testing.T) {
+	agent := setupTestAgent(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(completion.Response{Choices: []completion.Choice{{
+			Message: completion.Message{Role: completion.RoleAssistant, ToolCalls: []completion.ToolCall{{
+				ID:       "call_1",
+				Type:     "function",
+				Function: completion.FunctionCall{Name: "greet", Arguments: `{"name":"loop"}`},
+			}}},
+			FinishReason: "tool_calls",
+		}}})
+	})
+
+	_, err := agent.Run(context.Background(), "loop forever")
+	if err == nil {
+		t.Fatal("expected max-iteration error")
 	}
-	if result.ToolResults[0].Content != "Hello, World!" {
-		t.Fatalf("unexpected tool result: %s", result.ToolResults[0].Content)
+	if !strings.Contains(err.Error(), "max tool iterations reached") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -153,25 +170,12 @@ func TestRunWithToolPreHookBlock(t *testing.T) {
 		callCount++
 		var resp completion.Response
 		if callCount == 1 {
-			resp = completion.Response{
-				Choices: []completion.Choice{
-					{
-						Message: completion.Message{
-							Role: completion.RoleAssistant,
-							ToolCalls: []completion.ToolCall{
-								{ID: "call_1", Type: "function", Function: completion.FunctionCall{Name: "greet", Arguments: `{"name":"blocked"}`}},
-							},
-						},
-						FinishReason: "tool_calls",
-					},
-				},
-			}
+			resp = completion.Response{Choices: []completion.Choice{{
+				Message:      completion.Message{Role: completion.RoleAssistant, ToolCalls: []completion.ToolCall{{ID: "call_1", Type: "function", Function: completion.FunctionCall{Name: "greet", Arguments: `{"name":"blocked"}`}}}},
+				FinishReason: "tool_calls",
+			}}}
 		} else {
-			resp = completion.Response{
-				Choices: []completion.Choice{
-					{Message: completion.Message{Role: completion.RoleAssistant, Content: "Tool was blocked"}, FinishReason: "stop"},
-				},
-			}
+			resp = completion.Response{Choices: []completion.Choice{{Message: completion.Message{Role: completion.RoleAssistant, Content: "Tool was blocked"}, FinishReason: "stop"}}}
 		}
 		json.NewEncoder(w).Encode(resp)
 	})
@@ -188,11 +192,8 @@ func TestRunWithToolPreHookBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result.ToolResults) != 1 {
-		t.Fatalf("expected 1 tool result, got %d", len(result.ToolResults))
-	}
-	if !result.ToolResults[0].IsError {
-		t.Fatal("expected tool result to be an error (blocked)")
+	if len(result.ToolResults) != 1 || !result.ToolResults[0].IsError {
+		t.Fatalf("expected blocked tool result, got %+v", result.ToolResults)
 	}
 }
 
@@ -209,8 +210,7 @@ func TestRunSession(t *testing.T) {
 		},
 	})
 
-	err := agent.RunSession(context.Background())
-	if err != nil {
+	if err := agent.RunSession(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !sessionStarted {
@@ -239,7 +239,6 @@ func TestEndSession(t *testing.T) {
 
 func TestContextAccessors(t *testing.T) {
 	agent := setupTestAgent(func(w http.ResponseWriter, r *http.Request) {})
-
 	if agent.Context() == nil {
 		t.Fatal("Context() should not be nil")
 	}

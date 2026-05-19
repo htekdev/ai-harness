@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/htekdev/ai-harness/hooks"
 	"gopkg.in/yaml.v3"
 )
 
@@ -72,6 +74,9 @@ func Parse(data []byte) (*Config, error) {
 	}
 
 	applyDefaults(&cfg)
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
@@ -83,6 +88,9 @@ func ParseJSON(data []byte) (*Config, error) {
 	}
 
 	applyDefaults(&cfg)
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
@@ -109,6 +117,56 @@ func applyDefaults(cfg *Config) {
 	if cfg.Context.MaxTokens == 0 {
 		cfg.Context.MaxTokens = 128000
 	}
+}
+
+// Validate ensures the configuration is internally consistent.
+func (c *Config) Validate() error {
+	var issues []string
+
+	if strings.TrimSpace(c.Model.Name) == "" {
+		issues = append(issues, "model.name cannot be empty")
+	}
+	if c.Model.Temperature < 0 || c.Model.Temperature > 2 {
+		issues = append(issues, "model.temperature must be between 0 and 2")
+	}
+	if c.Model.MaxTokens <= 0 {
+		issues = append(issues, "model.max_tokens must be greater than 0")
+	}
+
+	seenTools := make(map[string]struct{}, len(c.Tools))
+	for i, tool := range c.Tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			issues = append(issues, fmt.Sprintf("tools[%d].name cannot be empty", i))
+			continue
+		}
+		if _, exists := seenTools[name]; exists {
+			issues = append(issues, fmt.Sprintf("tool %q is defined more than once", name))
+			continue
+		}
+		seenTools[name] = struct{}{}
+	}
+
+	validEvents := map[string]struct{}{
+		string(hooks.EventSessionStart):   {},
+		string(hooks.EventSessionEnd):     {},
+		string(hooks.EventTurnStart):      {},
+		string(hooks.EventTurnEnd):        {},
+		string(hooks.EventToolPre):        {},
+		string(hooks.EventToolPost):       {},
+		string(hooks.EventCompletionPre):  {},
+		string(hooks.EventCompletionPost): {},
+	}
+	for i, hookCfg := range c.Hooks {
+		if _, ok := validEvents[hookCfg.Event]; !ok {
+			issues = append(issues, fmt.Sprintf("hooks[%d].event %q is invalid", i, hookCfg.Event))
+		}
+	}
+
+	if len(issues) > 0 {
+		return fmt.Errorf("invalid config: %s", strings.Join(issues, "; "))
+	}
+	return nil
 }
 
 // ResolveAPIKey reads the API key from the environment variable specified in config.

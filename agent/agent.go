@@ -28,11 +28,11 @@ type Agent struct {
 
 // Options configures the agent.
 type Options struct {
-	Client       *completion.Client
-	Tools        *tools.Registry
-	Hooks        *hooks.System
-	Context      *agentctx.Manager
-	Logger       *log.Logger
+	Client  *completion.Client
+	Tools   *tools.Registry
+	Hooks   *hooks.System
+	Context *agentctx.Manager
+	Logger  *log.Logger
 }
 
 // New creates a new Agent with the given options.
@@ -89,6 +89,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 	})
 
 	result := &TurnResult{}
+	completed := false
 
 	for iteration := 0; iteration < MaxToolIterations; iteration++ {
 		// Build completion request
@@ -127,6 +128,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 		if len(choice.Message.ToolCalls) == 0 {
 			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
+			completed = true
 			break
 		}
 
@@ -175,6 +177,10 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 				ToolCallID: call.ID,
 			})
 		}
+	}
+
+	if !completed {
+		return nil, fmt.Errorf("max tool iterations reached (%d)", MaxToolIterations)
 	}
 
 	// Fire turn.end hook
