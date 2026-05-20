@@ -33,6 +33,7 @@ tools:
 hooks:
   - event: tool.pre
     handler: audit_log
+    when: payload.get("name", "") == "read_file"
 `)
 
 	cfg, err := Parse(yaml)
@@ -59,6 +60,9 @@ hooks:
 	}
 	if len(cfg.Hooks) != 1 {
 		t.Fatalf("expected 1 hook, got %d", len(cfg.Hooks))
+	}
+	if cfg.Hooks[0].When != "payload.get(\"name\", \"\") == \"read_file\"" {
+		t.Fatalf("unexpected hook when condition: %q", cfg.Hooks[0].When)
 	}
 }
 

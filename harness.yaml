@@ -28,7 +28,11 @@ context:
     - json.encode(val) / json.decode(s) — JSON helpers
     - log(msg) — emit log message
     - random(min, max) — random integer in range [min, max]
+    - sleep(ms) — pause execution for polling and rate-limited APIs
     - math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x)
+    - os.cwd(), os.hostname(), os.platform(), os.args() — runtime/process information
+    - url.parse(s), url.encode(params) — URL parsing and query construction
+    - uuid.v4() — generate unique correlation IDs
     - http.get(url, headers?, timeout_seconds?) — make HTTP GET requests
     - http.post(url, body?, headers?, timeout_seconds?) — make HTTP POST requests
     - re.match(pattern, text), re.find_all(pattern, text), re.replace(pattern, repl, text)
@@ -52,6 +56,7 @@ context:
     - fs.find(path, pattern) — find lines containing pattern
     - For hooks: allow(), block(reason), modify(payload)
     - Hook events: session.start/end, turn.start/end, tool.pre/post, completion.pre/post, delegate.pre/post
+    - Hooks can also declare a `when:` Starlark expression for conditional execution
     
     Starlark is Python-like but has NO imports. Use only the built-ins above.
     Tool scripts must define: def run(args): ...
@@ -465,6 +470,59 @@ tools:
               return hash.md5(content)
           fail("unsupported checksum algorithm: " + algorithm)
 
+  - name: runtime_snapshot
+    description: Capture runtime context and a unique correlation ID
+    parameters: {}
+    script: |
+      def run(args):
+          return json.encode({
+              "run_id": uuid.v4(),
+              "cwd": os.cwd(),
+              "hostname": os.hostname(),
+              "platform": os.platform(),
+              "argv": os.args(),
+          })
+
+  - name: build_search_url
+    description: Build and inspect a search URL for API or web requests
+    parameters:
+      base:
+        type: string
+        description: Base URL without query string
+        required: true
+      query:
+        type: string
+        description: Search query to encode
+        required: true
+    script: |
+      def run(args):
+          full = args["base"] + "?" + url.encode({
+              "q": args["query"],
+              "request_id": uuid.v4(),
+          })
+          parsed = url.parse(full)
+          return json.encode({
+              "url": full,
+              "host": parsed["host"],
+              "path": parsed["path"],
+          })
+
+  - name: wait_and_tag
+    description: Pause briefly, then return a tagged message for polling flows
+    parameters:
+      message:
+        type: string
+        description: Message to return after waiting
+        required: true
+      delay_ms:
+        type: number
+        description: Delay in milliseconds before responding
+        required: false
+    script: |
+      def run(args):
+          sleep(int(args.get("delay_ms", 250)))
+          return "[" + uuid.v4() + "] " + args["message"]
+
 hooks:
   - event: tool.pre
     handler: audit_log
@@ -503,6 +561,14 @@ hooks:
               return block("delegation task cannot be empty")
           if len(payload.get("tools", [])) > 4:
               return block("delegation request is too large — keep delegate toolsets focused")
+          return allow()
+
+  - event: tool.pre
+    handler: write_audit
+    when: payload.get("name", "") == "write_file" or payload.get("name", "") == "append_file"
+    script: |
+      def handle(event, payload):
+          log("write audit [" + uuid.v4() + "] " + payload["name"] + " on " + os.platform())
           return allow()
 
   - event: delegate.post

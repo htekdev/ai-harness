@@ -49,6 +49,7 @@ type HookSpec struct {
 	Event    string `json:"event"`
 	Handler  string `json:"handler"`
 	Script   string `json:"script"`
+	When     string `json:"when,omitempty"`
 	Priority int    `json:"priority,omitempty"`
 }
 
@@ -181,7 +182,7 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
 
 	// Register user-provided hooks
 	for _, hookSpec := range req.Hooks {
-		handler, err := scripting.NewHookHandler(d.engine, hookSpec.Handler, hookSpec.Script)
+		handler, err := scripting.NewConditionalHookHandler(d.engine, hookSpec.Handler, hookSpec.When, hookSpec.Script)
 		if err != nil {
 			return nil, fmt.Errorf("compile hook %q: %w", hookSpec.Handler, err)
 		}
@@ -361,8 +362,8 @@ func DelegateToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name: "delegate",
 		Description: `Spin up a sub-agent with custom tools and hooks to handle a task.
-Available Starlark built-ins for scripts: time.now(), env(key), json.encode(val), json.decode(s), log(msg), random(min, max), str(val), math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x), http.get(url, headers?, timeout_seconds?), http.post(url, body?, headers?, timeout_seconds?), re.match(pattern, text), re.find_all(pattern, text), re.replace(pattern, repl, text), hash.sha256(text), hash.md5(text), cache.set/get/has/delete/clear, and the fs module.
-Hook scripts also get: allow(), block(reason), modify(payload). Supported hook events include tool.pre/post, completion.pre/post, turn.start/end, session.start/end, and delegate.pre/post.
+Available Starlark built-ins for scripts: time.now(), env(key), json.encode(val), json.decode(s), log(msg), random(min, max), sleep(ms), str(val), math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x), os.cwd(), os.hostname(), os.platform(), os.args(), url.parse(s), url.encode(params), uuid.v4(), http.get(url, headers?, timeout_seconds?), http.post(url, body?, headers?, timeout_seconds?), re.match(pattern, text), re.find_all(pattern, text), re.replace(pattern, repl, text), hash.sha256(text), hash.md5(text), cache.set/get/has/delete/clear, and the fs module.
+Hook scripts also get: allow(), block(reason), modify(payload), and optional when expressions for conditional execution. Supported hook events include tool.pre/post, completion.pre/post, turn.start/end, session.start/end, and delegate.pre/post.
 Starlark is Python-like but has NO imports. Use only the built-ins listed above.`,
 		Parameters: []tools.Parameter{
 			{Name: "task", Type: tools.TypeString, Description: "What you want the delegate to accomplish", Required: true},
@@ -393,6 +394,7 @@ Starlark is Python-like but has NO imports. Use only the built-ins listed above.
 						"event":    {Type: tools.TypeString, Description: "Hook event (tool.pre, tool.post, etc.)"},
 						"handler":  {Type: tools.TypeString, Description: "Hook handler name"},
 						"script":   {Type: tools.TypeString, Description: "Starlark script implementing handle(event, payload)"},
+						"when":     {Type: tools.TypeString, Description: "Optional Starlark expression to decide whether the hook fires"},
 						"priority": {Type: tools.TypeNumber, Description: "Execution priority (lower = first)"},
 					},
 					Required: []string{"event", "handler", "script"},

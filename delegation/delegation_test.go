@@ -94,6 +94,7 @@ func TestRequest_Unmarshal(t *testing.T) {
 			{
 				"event": "tool.pre",
 				"handler": "guard",
+				"when": "payload.get(\"name\", \"\") == \"tool1\"",
 				"script": "def handle(event, payload):\n    return continue()"
 			}
 		],
@@ -113,6 +114,9 @@ func TestRequest_Unmarshal(t *testing.T) {
 	}
 	if len(req.Hooks) != 1 {
 		t.Errorf("hooks: %d", len(req.Hooks))
+	}
+	if req.Hooks[0].When != `payload.get("name", "") == "tool1"` {
+		t.Errorf("unexpected when: %q", req.Hooks[0].When)
 	}
 	if req.SystemPrompt != "You are helpful." {
 		t.Errorf("system_prompt: %q", req.SystemPrompt)

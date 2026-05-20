@@ -190,6 +190,56 @@ func TestHarnessRunWithUnimplementedToolPlaceholder(t *testing.T) {
 	}
 }
 
+func TestHarnessConditionalHookFromConfig(t *testing.T) {
+	setTestEnv(t, "AI_HARNESS_TEST_KEY", "secret")
+	cfg := testConfig()
+	cfg.Model.BaseURL = httptestServer(t, []string{
+		`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"echo","arguments":"{\"message\":\"hello\"}"}}]},"finish_reason":"tool_calls"}]}`,
+		`{"choices":[{"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}`,
+	})
+	cfg.Hooks = []config.HookConfig{{
+		Event:   string(hooks.EventToolPre),
+		Handler: "rewrite_echo_args",
+		When:    `payload.get("name", "") == "echo"`,
+		Script: `
+
+def handle(event, payload):
+    payload["arguments"] = {"message": "hooked"}
+    return modify(payload)
+`,
+	}}
+
+	h, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = h.RegisterTool(tools.Definition{
+		Name:        "echo",
+		Description: "Echo a message",
+		Parameters:  []tools.Parameter{{Name: "message", Type: tools.TypeString, Required: true}},
+	}, func(ctx context.Context, args json.RawMessage) (string, error) {
+		var payload struct {
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(args, &payload); err != nil {
+			return "", err
+		}
+		return payload.Message, nil
+	})
+	if err != nil {
+		t.Fatalf("register tool: %v", err)
+	}
+
+	result, err := h.Run(context.Background(), "say hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ToolResults) != 1 || result.ToolResults[0].Content != "hooked" {
+		t.Fatalf("unexpected tool results: %+v", result.ToolResults)
+	}
+}
+
 func TestRegisterHookReplacesConfiguredHook(t *testing.T) {
 	setTestEnv(t, "AI_HARNESS_TEST_KEY", "secret")
 	cfg := testConfig()

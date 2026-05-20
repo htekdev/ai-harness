@@ -22,7 +22,13 @@ func NewToolHandler(engine *Engine, name, script string) (tools.Handler, error) 
 
 // NewHookHandler creates a hooks.Handler backed by a Starlark script.
 func NewHookHandler(engine *Engine, name, script string) (hooks.Handler, error) {
-	runner, err := engine.CompileHookScript(name, script)
+	return NewConditionalHookHandler(engine, name, "", script)
+}
+
+// NewConditionalHookHandler creates a hooks.Handler backed by a Starlark script
+// with an optional Starlark when expression.
+func NewConditionalHookHandler(engine *Engine, name, when, script string) (hooks.Handler, error) {
+	runner, err := engine.CompileConditionalHookScript(name, when, script)
 	if err != nil {
 		return nil, err
 	}

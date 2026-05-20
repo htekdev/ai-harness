@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand/v2"
+	mrand "math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,6 +62,22 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"ceil":  starlark.NewBuiltin("math.ceil", builtinMathCeil),
 	})
 
+	osMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"cwd":      starlark.NewBuiltin("os.cwd", builtinOSCwd),
+		"hostname": starlark.NewBuiltin("os.hostname", builtinOSHostname),
+		"platform": starlark.NewBuiltin("os.platform", builtinOSPlatform),
+		"args":     starlark.NewBuiltin("os.args", builtinOSArgs),
+	})
+
+	urlMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"parse":  starlark.NewBuiltin("url.parse", builtinURLParse),
+		"encode": starlark.NewBuiltin("url.encode", builtinURLEncode),
+	})
+
+	uuidMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"v4": starlark.NewBuiltin("uuid.v4", builtinUUIDV4),
+	})
+
 	httpMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 		"get":  starlark.NewBuiltin("http.get", builtinHTTPGet),
 		"post": starlark.NewBuiltin("http.post", builtinHTTPPost),
@@ -109,6 +125,9 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"time":   timeMod,
 		"json":   jsonMod,
 		"math":   mathMod,
+		"os":     osMod,
+		"url":    urlMod,
+		"uuid":   uuidMod,
 		"http":   httpMod,
 		"re":     reMod,
 		"hash":   hashMod,
@@ -120,6 +139,7 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"block":  starlark.NewBuiltin("block", builtinBlock),
 		"modify": starlark.NewBuiltin("modify", builtinModify),
 		"random": starlark.NewBuiltin("random", builtinRandom),
+		"sleep":  starlark.NewBuiltin("sleep", builtinSleep),
 	}
 }
 
@@ -150,25 +170,7 @@ func (e *Engine) CompileToolScript(name, script string) (*ToolRunner, error) {
 // CompileHookScript compiles a hook script and returns a HookRunner.
 // The script must define a `handle(event, payload)` function.
 func (e *Engine) CompileHookScript(name, script string) (*HookRunner, error) {
-	thread := &starlark.Thread{Name: name}
-	globals, err := starlark.ExecFile(thread, name+".star", script, e.builtins)
-	if err != nil {
-		return nil, fmt.Errorf("compile hook script %q: %w", name, err)
-	}
-
-	handleFn, ok := globals["handle"]
-	if !ok {
-		return nil, fmt.Errorf("hook script %q must define a 'handle' function", name)
-	}
-	if _, ok := handleFn.(starlark.Callable); !ok {
-		return nil, fmt.Errorf("hook script %q: 'handle' must be a function", name)
-	}
-
-	return &HookRunner{
-		name:     name,
-		globals:  globals,
-		builtins: e.builtins,
-	}, nil
+	return e.CompileConditionalHookScript(name, "", script)
 }
 
 // ToolRunner executes a compiled tool script.
@@ -187,6 +189,7 @@ func (tr *ToolRunner) Run(ctx context.Context, args json.RawMessage) (string, er
 
 	runFn := tr.globals["run"].(starlark.Callable)
 	thread := &starlark.Thread{Name: tr.name + "-exec"}
+	thread.SetLocal(threadContextKey, ctx)
 
 	result, err := starlark.Call(thread, runFn, starlark.Tuple{argsDict}, nil)
 	if err != nil {
@@ -201,6 +204,7 @@ type HookRunner struct {
 	name     string
 	globals  starlark.StringDict
 	builtins starlark.StringDict
+	whenFn   starlark.Callable
 }
 
 // Run executes the hook's `handle(event, payload)` function.
@@ -215,11 +219,25 @@ func (hr *HookRunner) Run(ctx context.Context, event hooks.Event, payload any) h
 
 	handleFn := hr.globals["handle"].(starlark.Callable)
 	thread := &starlark.Thread{Name: hr.name + "-exec"}
-
-	result, err := starlark.Call(thread, handleFn, starlark.Tuple{
+	thread.SetLocal(threadContextKey, ctx)
+	callArgs := starlark.Tuple{
 		starlark.String(event),
 		payloadVal,
-	}, nil)
+	}
+	if hr.whenFn != nil {
+		allowed, err := starlark.Call(thread, hr.whenFn, callArgs, nil)
+		if err != nil {
+			return hooks.Result{
+				Action: hooks.ActionContinue,
+				Reason: fmt.Sprintf("hook %q when condition error: %v", hr.name, err),
+			}
+		}
+		if !allowed.Truth() {
+			return hooks.Result{Action: hooks.ActionContinue}
+		}
+	}
+
+	result, err := starlark.Call(thread, handleFn, callArgs, nil)
 	if err != nil {
 		return hooks.Result{
 			Action: hooks.ActionContinue,
@@ -332,7 +350,7 @@ func builtinRandom(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple,
 	if min >= max {
 		return nil, fmt.Errorf("random: min must be less than max")
 	}
-	n := rand.IntN(max-min+1) + min
+	n := mrand.IntN(max-min+1) + min
 	return starlark.MakeInt(n), nil
 }
 

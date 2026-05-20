@@ -56,6 +56,7 @@ type HookConfig struct {
 	Event    string `yaml:"event" json:"event"`
 	Handler  string `yaml:"handler" json:"handler"`
 	Script   string `yaml:"script,omitempty" json:"script,omitempty"`
+	When     string `yaml:"when,omitempty" json:"when,omitempty"`
 	Priority int    `yaml:"priority,omitempty" json:"priority,omitempty"`
 }
 

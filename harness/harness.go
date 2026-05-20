@@ -82,7 +82,7 @@ func NewFromConfig(cfg *config.Config) (*Harness, error) {
 		var handler hooks.Handler
 
 		if hookCfg.Script != "" {
-			h, err := scripting.NewHookHandler(engine, hookCfg.Handler, hookCfg.Script)
+			h, err := scripting.NewConditionalHookHandler(engine, hookCfg.Handler, hookCfg.When, hookCfg.Script)
 			if err != nil {
 				return nil, fmt.Errorf("compile hook script %q: %w", hookCfg.Handler, err)
 			}

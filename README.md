@@ -160,11 +160,14 @@ All tools and hooks can be implemented entirely in Starlark (a Python-like langu
 | **Time** | `time.now()` |
 | **JSON** | `json.encode(val)`, `json.decode(s)` |
 | **Math** | `math.abs`, `math.min`, `math.max`, `math.floor`, `math.ceil` |
+| **Runtime** | `os.cwd()`, `os.hostname()`, `os.platform()`, `os.args()` |
+| **URL / IDs** | `url.parse(s)`, `url.encode(params)`, `uuid.v4()` |
+| **Flow control** | `random(min, max)`, `sleep(ms)` |
 | **Network** | `http.get(url, headers?, timeout_seconds?)`, `http.post(url, body?, headers?, timeout_seconds?)` |
 | **Regex** | `re.match(pattern, text)`, `re.find_all(pattern, text)`, `re.replace(pattern, repl, text)` |
 | **Hashing** | `hash.sha256(text)`, `hash.md5(text)` |
 | **State** | `cache.set/get/has/delete/clear` |
-| **I/O** | `env(key)`, `log(msg)`, `random(min, max)` |
+| **I/O** | `env(key)`, `log(msg)` |
 | **File read** | `fs.read(path)`, `fs.exists(path)`, `fs.list(path)`, `fs.stat(path)`, `fs.line_count(path)`, `fs.find(path, pattern)`, `fs.read_lines(path, start, end)` |
 | **File write** | `fs.write(path, content)`, `fs.append(path, content)`, `fs.mkdir(path)`, `fs.remove(path)` |
 | **File edit** | `fs.replace(path, old, new)`, `fs.replace_all(path, old, new)`, `fs.insert_at(path, line, content)`, `fs.replace_lines(path, start, end, content)`, `fs.delete_lines(path, start, end)` |
@@ -192,6 +195,7 @@ The `delegate` meta-tool lets the agent create sub-agents with custom tools at r
 - Delegates never get the parent's `delegate` tool (no recursion)
 - Task context auto-injected when tools have no declared parameters
 - `delegate.pre` / `delegate.post` hooks can block or rewrite delegation requests and results
+- Hooks can declare `when:` expressions to fire only for matching payloads (for example, only on specific tools)
 
 ### Lower-level API
 
@@ -474,6 +478,7 @@ hooks:
 | --- | --- | --- | --- |
 | `event` | string | yes | Must match a defined lifecycle event |
 | `handler` | string | yes | Symbolic handler name |
+| `when` | string | no | Optional Starlark expression; hook runs only when it evaluates truthy |
 | `priority` | int | no | Lower numbers execute first (default: 100) |
 | `script` | string | no | Starlark script implementing `def handle(event, payload): ...` |
 
@@ -482,6 +487,9 @@ hooks:
 ### Events
 
 Valid events:
+
+Hooks may also include a `when:` expression that can inspect `event`, `payload`, and the standard Starlark built-ins before the main `handle(event, payload)` function runs.
+
 
 - `session.start`
 - `session.end`
