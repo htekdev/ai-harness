@@ -1,16 +1,18 @@
 # AI Harness
 
-A minimal, extensible AI agent harness in Go that makes building **self-extending, governed agents** trivial. Define tools, hooks, and even entire sub-agents inline in YAML using embedded Starlark scripts — no external plugins, no subprocess protocols, no framework lock-in.
+A minimal, extensible AI agent harness in Go that makes building **self-extending, governed agents** trivial. Define tools, hooks, and entire sub-agents in Markdown files using embedded Starlark scripts — no external plugins, no subprocess protocols, no framework lock-in.
 
 ## Why this project exists
 
 Most agent frameworks force a choice: either you get a rigid plugin system that's hard to customize, or you get raw LLM access with no guardrails. `ai-harness` takes a different approach:
 
-**Everything is defined in YAML. Everything is governed by hooks. Agents can extend themselves at runtime.**
+**Everything is Markdown. Everything is governed by hooks. Agents can extend themselves at runtime — recursively.**
 
-- **Self-contained**: Tools, hooks, and governance rules are all defined inline in `harness.yaml` using Starlark scripts — no external files, no build steps
-- **Self-extending**: The built-in `delegate` meta-tool lets agents spin up sub-agents with custom tools on the fly when they lack a capability
+- **Markdown-first**: Configuration lives in `harness.md` (YAML frontmatter + markdown body as system prompt). Tools, hooks, and agents are individual `.md` files in `.harness/`
+- **Self-extending**: The `delegate` meta-tool lets agents spawn sub-agents recursively — building trees of specialized workers on the fly
 - **Governed by default**: Built-in retry guards, path traversal protection, secret detection, and hook-based lifecycle control prevent runaway behavior without relying on prompt engineering
+- **Custom agents**: Named agents (`.harness/agents/*.md`) bundle model + prompt + tools + hooks into reusable, composable units
+- **Parallel & async**: Tool calls execute concurrently within a turn. Delegation supports both synchronous and asynchronous modes
 - **Minimal**: Plain Go interfaces — `tools.Handler` is just `func(ctx, args) (string, error)`
 - **Portable**: Works with GitHub Copilot, OpenAI, or any compatible API
 
@@ -20,7 +22,8 @@ Most agent frameworks force a choice: either you get a rigid plugin system that'
 
 The harness enforces safety through architecture, not instructions:
 - `fs.replace` **fails** if the match isn't unique (forces surgical edits)
-- Delegates are capped at 5 tool iterations (fail fast, don't loop)
+- Recursive delegation is depth-limited (configurable, hard cap at 5)
+- Iterations decrease per depth level (20 → 10 → 5 → 3)
 - Retry guards auto-block tools after 2 consecutive errors
 - Path operations are jailed to the working directory at the Go level
 - Hooks run at every lifecycle point — blocking is a first-class action
@@ -34,7 +37,7 @@ The harness enforces safety through architecture, not instructions:
 │                                                               │
 │  ┌──────────┐    ┌──────────┐    ┌──────────────┐           │
 │  │  Config  │───▶│  Agent   │───▶│  Completion  │           │
-│  │  (YAML)  │    │  Loop    │    │  Client      │           │
+│  │ (MD+Dir) │    │  Loop    │    │  Client      │           │
 │  └──────────┘    └────┬─────┘    └──────────────┘           │
 │                       │                                       │
 │       ┌───────────────┼───────────────┐                      │
@@ -50,6 +53,13 @@ The harness enforces safety through architecture, not instructions:
 │  │ Starlark │   │ Delegate │   │  fs/edit     │            │
 │  │ Engine   │   │  System  │   │  Built-ins   │            │
 │  └──────────┘   └──────────┘   └──────────────┘            │
+│                       │                                       │
+│       ┌───────────────┼───────────────┐                      │
+│       ▼               ▼               ▼                      │
+│  ┌──────────┐   ┌──────────┐   ┌──────────────┐            │
+│  │  Model   │   │  Agent   │   │   Task       │            │
+│  │ Registry │   │ Registry │   │   Store      │            │
+│  └──────────┘   └──────────┘   └──────────────┘            │
 │                                                               │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -63,18 +73,33 @@ go install github.com/htekdev/ai-harness/cmd/example@latest
 
 ## Quick start
 
-### 1. Define everything in YAML
+### 1. Define your harness in Markdown
 
-```yaml
-# harness.yaml
+```markdown
+<!-- harness.md -->
+---
 model:
   provider: copilot
   name: gpt-4o
   max_tokens: 4096
   temperature: 0.7
+  api_key_env: GH_TOKEN
+
+models:
+  - name: gpt-4o
+    provider: copilot
+    api_key_env: GH_TOKEN
+  - name: gpt-4o-mini
+    provider: copilot
+    api_key_env: GH_TOKEN
+
+delegation:
+  max_depth: 3
+  max_concurrent: 5
+  iterations_per_depth: [20, 10, 5, 3]
 
 context:
-  system_prompt: "You are a helpful AI assistant."
+  system_prompt: ""  # body below is the system prompt
 
 tools:
   - name: greet
@@ -88,32 +113,6 @@ tools:
       def run(args):
           return "Hello, " + args["name"] + "!"
 
-  - name: read_file
-    description: Read a file
-    parameters:
-      path:
-        type: string
-        required: true
-    script: |
-      def run(args):
-          return fs.read(args["path"])
-
-  - name: edit_file
-    description: Find and replace in a file
-    parameters:
-      path:
-        type: string
-        required: true
-      old_str:
-        type: string
-        required: true
-      new_str:
-        type: string
-        required: true
-    script: |
-      def run(args):
-          return fs.replace(args["path"], args["old_str"], args["new_str"])
-
 hooks:
   - event: tool.pre
     handler: secret_guard
@@ -124,9 +123,62 @@ hooks:
           if "password" in encoded or "secret" in encoded:
               return block("potential secret detected")
           return allow()
+---
+
+# AI Assistant
+
+You are a helpful AI assistant powered by the AI Harness framework.
+
+## Rules
+
+- Use the delegate tool to spawn sub-agents when you need specialized capabilities
+- Never say "I can't do that" — delegate to a specialist agent
+- Be concise and helpful
 ```
 
-### 2. Run it
+### 2. Add file-based tools (optional)
+
+```markdown
+<!-- .harness/tools/read_file.md -->
+---
+parameters:
+  path: { type: string, required: true }
+script: |
+  def run(args):
+      return fs.read(args["path"])
+---
+
+# read_file
+
+Read a file from the workspace and return its contents.
+```
+
+### 3. Add custom agents (optional)
+
+```markdown
+<!-- .harness/agents/code-writer.md -->
+---
+model: gpt-4o
+description: Writes and tests Go code
+tools:
+  - read_file
+  - write_file
+  - name: run_tests
+    parameters: {}
+    script: |
+      def run(args):
+          return exec.run("go", ["test", "./..."])
+hooks:
+  - path_guard
+---
+
+# Code Writer
+
+You are a senior Go developer. Write clean, idiomatic, well-tested code.
+Always run tests after writing code.
+```
+
+### 4. Run it
 
 ```go
 package main
@@ -134,11 +186,11 @@ package main
 import "github.com/htekdev/ai-harness/harness"
 
 func main() {
-    h, err := harness.New("harness.yaml")
+    h, err := harness.New("harness.md")
     if err != nil {
         panic(err)
     }
-    h.Interactive() // starts the CLI loop
+    h.Interactive()
 }
 ```
 
@@ -147,13 +199,83 @@ export GH_TOKEN=$(gh auth token)
 go run ./cmd/example/
 ```
 
-That's it. Tools execute Starlark inline. Hooks govern every lifecycle event. No Go code required for tool logic.
+That's it. The harness auto-discovers `.harness/tools/`, `.harness/hooks/`, and `.harness/agents/` directories. Inline definitions and file-based definitions are additive — mix freely.
 
-Custom hooks may subscribe to any `custom.*` event name, which lets tools and hooks create their own internal event bus with `emit("custom.your_event", payload)`.
+## Directory convention
+
+```
+project/
+  harness.md                     # root harness (frontmatter + system prompt)
+  .harness/
+    agents/
+      code-writer.md             # custom agent: "code-writer"
+      researcher.md              # custom agent: "researcher"
+    tools/
+      read_file.md               # tool: "read_file"
+      write_file.md              # tool: "write_file"
+      edit_file.md               # tool: "edit_file"
+    hooks/
+      path_guard.md              # hook: "path_guard"
+      command_guard.md           # hook: "command_guard"
+```
+
+**Loading rules:**
+1. `harness.md` frontmatter is loaded first (inline tools/hooks registered)
+2. `.harness/tools/*.md` are scanned and ADDED to the tool registry
+3. `.harness/hooks/*.md` are scanned and ADDED to the hook system
+4. `.harness/agents/*.md` are scanned and registered in the agent registry
+5. On name collision, **file wins** (allows overriding inline defaults)
+6. `.harness/` is optional — inline-only works perfectly
+
+## Delegation system
+
+### Recursive delegation (agent trees)
+
+Delegates can spawn their own delegates, creating trees of specialized workers:
+
+```json
+{
+  "task": "Build and test a REST API",
+  "agent": "code-writer",
+  "model": "gpt-4o-mini"
+}
+```
+
+**Guardrails (harness-level, not prompting):**
+- Depth-limited: configurable max (hard cap at 5 regardless)
+- Iterations decrease per depth: `[20, 10, 5, 3]` by default
+- Retry guard blocks tools after 2 consecutive errors
+- `delegate.pre` / `delegate.post` hooks can block or rewrite at any level
+
+### Async delegation
+
+```json
+{
+  "task": "Research the latest Go release notes",
+  "agent": "researcher",
+  "async": true
+}
+```
+
+Returns a task handle immediately. Query status with `delegate_status`, get results with `delegate_result`, or block with `delegate_await`.
+
+### Custom agents
+
+Named agents in `.harness/agents/` bundle:
+- **Model** — which model to use
+- **System prompt** — the markdown body
+- **Tools** — references to `.harness/tools/` or inline definitions
+- **Hooks** — references to `.harness/hooks/` or inline definitions
+
+Agent tools can be **string references** (loaded from `.harness/tools/`) or **inline objects**. Hooks work the same way. This makes tools and hooks **composable** — define once, reuse across agents.
+
+### Parallel tool execution
+
+All tool calls within a single model turn execute concurrently (goroutines + WaitGroup). Results are collected in order and added to context sequentially.
 
 ### Starlark scripting engine
 
-All tools and hooks can be implemented entirely in Starlark (a Python-like language) embedded in the YAML. No Go code needed for tool logic.
+All tools and hooks are implemented in Starlark (a Python-like language) embedded in the Markdown frontmatter. No Go code needed for tool logic.
 
 **Available built-ins:**
 
@@ -177,33 +299,6 @@ All tools and hooks can be implemented entirely in Starlark (a Python-like langu
 | **File write** | `fs.write(path, content)`, `fs.append(path, content)`, `fs.mkdir(path)`, `fs.remove(path)`, `fs.copy(src, dst)`, `fs.move(src, dst)` |
 | **File edit / preview** | `fs.replace(path, old, new)`, `fs.replace_all(path, old, new)`, `fs.insert_at(path, line, content)`, `fs.replace_lines(path, start, end, content)`, `fs.delete_lines(path, start, end)`, `fs.diff(old_content, new_content, old_name?, new_name?)` |
 | **Hooks** | `allow()`, `block(reason)`, `modify(payload)` |
-
-Tool definitions may also declare `timeout_ms` in YAML so the harness automatically cancels long-running scripts.
-
-### Self-extending delegation
-
-The `delegate` meta-tool lets the agent create sub-agents with custom tools at runtime:
-
-```yaml
-# The agent calls delegate automatically when it lacks a capability:
-# delegate({
-#   "task": "Count words in each .go file",
-#   "tools": [{
-#     "name": "count_words",
-#     "description": "Count words in a file",
-#     "script": "def run(args):\n    content = fs.read(args['path'])\n    return str(len(content.split()))"
-#   }]
-# })
-```
-
-**Delegation guardrails (harness-level, not prompting):**
-- Max 5 tool iterations per delegate (fail fast)
-- Built-in retry guard blocks tools after 2 consecutive errors
-- Delegates never get the parent's `delegate` tool (no recursion)
-- Task context auto-injected when tools have no declared parameters
-- `delegate.pre` / `delegate.post` hooks can block or rewrite delegation requests and results
-- Hooks can declare `when:` expressions to fire only for matching payloads (for example, only on specific tools)
-- Scripts can `emit("custom.*", payload)` and let other hooks observe or rewrite domain-specific events
 
 ### Lower-level API
 
@@ -244,17 +339,17 @@ go run ./cmd/example/
 ## API reference
 
 ### `harness`
-The high-level entry point. It loads config, creates the completion client, context manager, hook system, tool registry, and agent.
+The high-level entry point. It loads config, creates the completion client, context manager, hook system, tool registry, model registry, agent registry, and agent.
 
 ```go
-h, err := harness.New("harness.yaml")
+h, err := harness.New("harness.md")
 result, err := h.Run(ctx, "Summarize this file")
 ```
 
 Key methods:
 
-- `New(configPath string) (*Harness, error)`
-- `NewFromConfig(cfg *config.Config) (*Harness, error)`
+- `New(configPath string) (*Harness, error)` — auto-detects .md vs .yaml
+- `NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*Harness, error)`
 - `Run(ctx, input)`
 - `RunSession(ctx)` / `EndSession(ctx)`
 - `RegisterTool(def, handler)`
@@ -390,10 +485,10 @@ Capabilities:
 - fork contexts for branching workflows
 
 ### `config`
-YAML/JSON config loader and validator.
+Markdown/YAML config loader, directory scanner, and validator.
 
 ```go
-cfg, err := config.Load("harness.yaml")
+cfg, agents, err := config.LoadFull("harness.md")
 if err != nil {
   panic(err)
 }
@@ -404,14 +499,15 @@ baseURL := cfg.BaseURL()
 
 Capabilities:
 
-- parse YAML and JSON
-- apply defaults
-- validate model, tool, and hook settings
-- resolve API keys from environment variables
+- parse Markdown (frontmatter + body) and legacy YAML/JSON
+- auto-detect format by extension
+- scan `.harness/tools/`, `.harness/hooks/`, `.harness/agents/` directories
+- merge file-based definitions with inline (additive, files win on collision)
+- apply defaults and validate
 
 ## Configuration reference
 
-Example `harness.yaml`:
+Example `harness.md` frontmatter:
 
 ```yaml
 model:
@@ -420,13 +516,29 @@ model:
   max_tokens: 4096          # must be > 0
   temperature: 0.7          # must be between 0 and 2
   base_url: ""             # optional override; provider default used when empty
-  api_key_env: GITHUB_TOKEN # env var to read API key from
+  api_key_env: GH_TOKEN     # env var to read API key from
+
+models:                      # named model registry for delegation
+  - name: gpt-4o
+    provider: copilot
+    api_key_env: GH_TOKEN
+  - name: gpt-4o-mini
+    provider: copilot
+    api_key_env: GH_TOKEN
+
+delegation:
+  max_depth: 3              # max recursive depth (hard cap: 5)
+  max_concurrent: 5         # max async tasks running
+  iterations_per_depth:     # tool iterations allowed per depth level
+    - 20
+    - 10
+    - 5
+    - 3
 
 context:
   max_history: 50           # max non-system messages retained
   max_tokens: 128000        # approximate context budget
-  system_prompt: |
-    You are a helpful AI assistant.
+  system_prompt: ""         # overridden by markdown body if empty
 
 tools:
   - name: echo
@@ -439,7 +551,7 @@ tools:
 
 hooks:
   - event: tool.pre         # see valid hook events below
-    handler: audit_log      # symbolic hook name resolved by your app
+    handler: audit_log      # symbolic hook name
 ```
 
 ### Full schema
@@ -613,17 +725,21 @@ Current package coverage is designed to stay high across the core libraries, inc
 
 ```
 ai-harness/
-├── agent/          # Agent loop orchestration
-├── cmd/example/    # Example CLI (just calls harness.New + Interactive)
-├── completion/     # OpenAI-compatible client, including streaming
-├── config/         # YAML/JSON config and validation
-├── context/        # Conversation history manager
-├── delegation/     # Delegate meta-tool (sub-agent creation)
-├── harness/        # High-level API (wires everything together)
-├── hooks/          # Lifecycle hook system
-├── scripting/      # Starlark engine + fs/edit built-ins
-├── tools/          # Tool registry and execution
-├── harness.yaml    # Example configuration with inline tools
+├── .harness/           # File-based tools, hooks, agents (auto-discovered)
+│   ├── agents/         # Custom named agents (.md files)
+│   ├── hooks/          # Hook definitions (.md files)
+│   └── tools/          # Tool definitions (.md files)
+├── agent/              # Agent loop orchestration (parallel tool execution)
+├── cmd/example/        # Example CLI (auto-detects harness.md vs harness.yaml)
+├── completion/         # OpenAI-compatible client, including streaming
+├── config/             # Markdown/YAML config, directory loader, validation
+├── context/            # Conversation history manager
+├── delegation/         # Recursive delegation, depth tracking, async task store
+├── harness/            # High-level API (model registry, agent resolver, wiring)
+├── hooks/              # Lifecycle hook system
+├── scripting/          # Starlark engine + fs/edit built-ins
+├── tools/              # Tool registry and execution
+├── harness.md          # Root harness configuration
 └── go.mod
 ```
 

@@ -30,21 +30,25 @@ type Harness struct {
 	engine     *scripting.Engine
 	delegator  *delegation.Delegator
 	agent      *agent.Agent
+	agents     map[string]*config.AgentConfig
 }
 
-// New loads a harness from a configuration file.
+// New loads a harness from a configuration file (supports .md and .yaml).
 func New(configPath string) (*Harness, error) {
-	cfg, err := config.Load(configPath)
+	cfg, agents, err := config.LoadFull(configPath)
 	if err != nil {
 		return nil, err
 	}
-	return NewFromConfig(cfg)
+	return NewFromConfig(cfg, agents)
 }
 
 // NewFromConfig constructs a harness from a parsed configuration.
-func NewFromConfig(cfg *config.Config) (*Harness, error) {
+func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*Harness, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config cannot be nil")
+	}
+	if agents == nil {
+		agents = make(map[string]*config.AgentConfig)
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -115,6 +119,52 @@ func NewFromConfig(cfg *config.Config) (*Harness, error) {
 		Timeout:    60 * time.Second,
 	})
 
+	// Build model registry
+	modelClients := make(map[string]*completion.Client)
+	modelClients[cfg.Model.Name] = client // default model always available
+	for _, modelCfg := range cfg.Models {
+		if modelCfg.Name == cfg.Model.Name {
+			continue // already registered as default
+		}
+		modelKey := modelCfg.APIKeyEnv
+		if modelKey == "" {
+			modelKey = cfg.Model.APIKeyEnv
+		}
+		mAPIKey := os.Getenv(modelKey)
+		if mAPIKey == "" {
+			mAPIKey = apiKey // fallback to main key
+		}
+		mBaseURL := modelCfg.BaseURL
+		if mBaseURL == "" {
+			mBaseURL = cfg.BaseURL()
+		}
+		mc := completion.NewClient(completion.ClientConfig{
+			BaseURL:    mBaseURL,
+			APIKey:     mAPIKey,
+			Model:      modelCfg.Name,
+			MaxRetries: 3,
+			Timeout:    60 * time.Second,
+		})
+		modelClients[modelCfg.Name] = mc
+	}
+
+	clientFactory := func(modelName string) (*completion.Client, error) {
+		if c, ok := modelClients[modelName]; ok {
+			return c, nil
+		}
+		return nil, fmt.Errorf("model %q not found in registry", modelName)
+	}
+
+	// Build agent resolver
+	agentResolver := buildAgentResolver(agents)
+
+	// Create task store for async delegation
+	maxConc := cfg.Delegation.MaxConcurrent
+	if maxConc <= 0 {
+		maxConc = 5
+	}
+	taskStore := delegation.NewTaskStore(maxConc, 5*time.Minute)
+
 	ctxMgr := agentctx.NewManager(agentctx.Config{
 		SystemPrompt: cfg.Context.SystemPrompt,
 		MaxMessages:  cfg.Context.MaxHistory,
@@ -123,17 +173,33 @@ func NewFromConfig(cfg *config.Config) (*Harness, error) {
 
 	// Create delegator for the built-in delegate meta-tool
 	delegator := delegation.NewDelegator(delegation.DelegatorConfig{
-		Client:       client,
-		Engine:       engine,
-		HookSystem:   hookSystem,
-		SystemPrompt: cfg.Context.SystemPrompt,
-		Logger:       log.New(os.Stderr, "[delegate] ", log.LstdFlags),
+		Client:             client,
+		Engine:             engine,
+		HookSystem:         hookSystem,
+		SystemPrompt:       cfg.Context.SystemPrompt,
+		Logger:             log.New(os.Stderr, "[delegate] ", log.LstdFlags),
+		MaxDepth:           cfg.Delegation.MaxDepth,
+		IterationsPerDepth: cfg.Delegation.IterationsPerDepth,
+		AgentResolver:      agentResolver,
+		ClientFactory:      clientFactory,
+		TaskStore:          taskStore,
 	})
 
 	// Register the delegate meta-tool
 	delegateDef := delegation.DelegateToolDefinition()
 	if err := registry.Register(delegateDef, delegator.CreateDelegateToolHandler()); err != nil {
 		return nil, fmt.Errorf("register delegate tool: %w", err)
+	}
+
+	// Register async delegation tools
+	asyncDefs := delegation.AsyncDelegateToolDefinitions()
+	asyncHandlers := delegator.CreateAsyncDelegateHandlers()
+	for _, def := range asyncDefs {
+		if handler, ok := asyncHandlers[def.Name]; ok {
+			if err := registry.Register(def, handler); err != nil {
+				return nil, fmt.Errorf("register async tool %q: %w", def.Name, err)
+			}
+		}
 	}
 
 	h := &Harness{
@@ -144,6 +210,7 @@ func NewFromConfig(cfg *config.Config) (*Harness, error) {
 		ctxMgr:     ctxMgr,
 		engine:     engine,
 		delegator:  delegator,
+		agents:     agents,
 	}
 	if h.cfg == nil {
 		h.cfg = &config.Config{}
@@ -178,6 +245,11 @@ func (h *Harness) EndSession(ctx context.Context) {
 // Agent returns the underlying agent.
 func (h *Harness) Agent() *agent.Agent {
 	return h.agent
+}
+
+// Agents returns the custom agent registry.
+func (h *Harness) Agents() map[string]*config.AgentConfig {
+	return h.agents
 }
 
 // RegisterTool registers or replaces a tool handler.
@@ -222,4 +294,65 @@ func unimplementedHookHandler(name string) hooks.Handler {
 	return func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
 		return hooks.Result{Action: hooks.ActionContinue}
 	}
+}
+
+// buildAgentResolver creates a resolver that looks up agents from the loaded registry.
+func buildAgentResolver(agents map[string]*config.AgentConfig) delegation.AgentResolver {
+	return func(name string) (*delegation.ResolvedAgent, error) {
+		agentCfg, ok := agents[name]
+		if !ok {
+			return nil, fmt.Errorf("agent %q not found (available: %v)", name, agentNames(agents))
+		}
+
+		var tools []delegation.ToolSpec
+		for _, t := range agentCfg.Tools {
+			if t.Ref != "" {
+				// Reference to another tool — needs to be resolved from the global registry
+				// For now, skip references that can't be resolved inline
+				continue
+			}
+			if t.Inline != nil {
+				params := make(map[string]delegation.ParamSpec, len(t.Inline.Parameters))
+				for pName, pCfg := range t.Inline.Parameters {
+					params[pName] = delegation.ParamSpec{
+						Type:        pCfg.Type,
+						Description: pCfg.Description,
+						Required:    pCfg.Required,
+					}
+				}
+				tools = append(tools, delegation.ToolSpec{
+					Name:        t.Inline.Name,
+					Description: t.Inline.Description,
+					Parameters:  params,
+					Script:      t.Inline.Script,
+				})
+			}
+		}
+
+		var hooks []delegation.HookSpec
+		for _, h := range agentCfg.Hooks {
+			hooks = append(hooks, delegation.HookSpec{
+				Event:    h.Event,
+				Handler:  h.Handler,
+				Script:   h.Script,
+				When:     h.When,
+				Priority: h.Priority,
+			})
+		}
+
+		return &delegation.ResolvedAgent{
+			SystemPrompt: agentCfg.SystemPrompt,
+			Model:        agentCfg.Model,
+			Tools:        tools,
+			Hooks:        hooks,
+		}, nil
+	}
+}
+
+func agentNames(agents map[string]*config.AgentConfig) []string {
+	names := make([]string, 0, len(agents))
+	for name := range agents {
+		names = append(names, name)
+	}
+	return names
 }

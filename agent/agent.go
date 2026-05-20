@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"sync"
 
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
@@ -175,63 +176,85 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 		// Add assistant message with tool calls to context
 		a.context.AddMessage(choice.Message)
 
-		// Execute each tool call
-		for _, tc := range choice.Message.ToolCalls {
+		// Execute tool calls in parallel
+		type toolExecResult struct {
+			index      int
+			call       tools.Call
+			toolResult tools.Result
+			blocked    bool
+			err        error
+		}
+
+		toolCalls := choice.Message.ToolCalls
+		execResults := make([]toolExecResult, len(toolCalls))
+		var wg sync.WaitGroup
+
+		for i, tc := range toolCalls {
 			call := tools.Call{
 				ID:        tc.ID,
 				Name:      tc.Function.Name,
 				Arguments: json.RawMessage(tc.Function.Arguments),
 			}
+			execResults[i].index = i
+			execResults[i].call = call
 
-			// Fire tool.pre hook
-			preResult := a.hooks.Dispatch(turnCtx, hooks.EventToolPre, &call)
-			if preResult.Action == hooks.ActionBlock {
-				result.ToolCalls = append(result.ToolCalls, call)
-				// Tool was blocked — send error result back to model
-				toolResult := tools.Result{
-					CallID:  call.ID,
-					Content: fmt.Sprintf("tool blocked: %s", preResult.Reason),
-					IsError: true,
+			wg.Add(1)
+			go func(idx int, c tools.Call) {
+				defer wg.Done()
+
+				// Fire tool.pre hook
+				preResult := a.hooks.Dispatch(turnCtx, hooks.EventToolPre, &c)
+				if preResult.Action == hooks.ActionBlock {
+					execResults[idx].blocked = true
+					execResults[idx].toolResult = tools.Result{
+						CallID:  c.ID,
+						Content: fmt.Sprintf("tool blocked: %s", preResult.Reason),
+						IsError: true,
+					}
+					return
 				}
-				result.ToolResults = append(result.ToolResults, toolResult)
-				a.context.AddMessage(completion.Message{
-					Role:       completion.RoleTool,
-					Content:    toolResult.Content,
-					ToolCallID: call.ID,
-				})
-				continue
-			}
-			if preResult.Action == hooks.ActionModify {
-				if err := applyHookPayload(preResult.Payload, &call); err != nil {
-					return nil, fmt.Errorf("tool.pre modify payload: %w", err)
+				if preResult.Action == hooks.ActionModify {
+					if err := applyHookPayload(preResult.Payload, &c); err != nil {
+						execResults[idx].err = err
+						return
+					}
+					execResults[idx].call = c
 				}
-			}
 
-			result.ToolCalls = append(result.ToolCalls, call)
+				// Execute the tool
+				a.logger.Printf("executing tool: %s (call_id: %s)", c.Name, c.ID)
+				toolResult := a.tools.Execute(turnCtx, c)
 
-			// Execute the tool
-			a.logger.Printf("executing tool: %s (call_id: %s)", call.Name, call.ID)
-			toolResult := a.tools.Execute(turnCtx, call)
-
-			// Fire tool.post hook
-			postResult := a.hooks.Dispatch(turnCtx, hooks.EventToolPost, &toolResult)
-			if postResult.Action == hooks.ActionBlock {
-				toolResult.Content = fmt.Sprintf("tool result blocked: %s", postResult.Reason)
-				toolResult.IsError = true
-			}
-			if postResult.Action == hooks.ActionModify {
-				if err := applyHookPayload(postResult.Payload, &toolResult); err != nil {
-					return nil, fmt.Errorf("tool.post modify payload: %w", err)
+				// Fire tool.post hook
+				postResult := a.hooks.Dispatch(turnCtx, hooks.EventToolPost, &toolResult)
+				if postResult.Action == hooks.ActionBlock {
+					toolResult.Content = fmt.Sprintf("tool result blocked: %s", postResult.Reason)
+					toolResult.IsError = true
 				}
+				if postResult.Action == hooks.ActionModify {
+					if err := applyHookPayload(postResult.Payload, &toolResult); err != nil {
+						execResults[idx].err = err
+						return
+					}
+				}
+
+				execResults[idx].toolResult = toolResult
+			}(i, call)
+		}
+
+		wg.Wait()
+
+		// Collect results in order and add to context
+		for _, er := range execResults {
+			if er.err != nil {
+				return nil, er.err
 			}
-
-			result.ToolResults = append(result.ToolResults, toolResult)
-
-			// Add tool result to context
+			result.ToolCalls = append(result.ToolCalls, er.call)
+			result.ToolResults = append(result.ToolResults, er.toolResult)
 			a.context.AddMessage(completion.Message{
 				Role:       completion.RoleTool,
-				Content:    toolResult.Content,
-				ToolCallID: call.ID,
+				Content:    er.toolResult.Content,
+				ToolCallID: er.call.ID,
 			})
 		}
 	}

@@ -13,16 +13,25 @@ import (
 
 // Config is the top-level harness configuration.
 type Config struct {
-	Model   ModelConfig   `yaml:"model" json:"model"`
-	Context ContextConfig `yaml:"context" json:"context"`
-	Tools   []ToolConfig  `yaml:"tools" json:"tools"`
-	Hooks   []HookConfig  `yaml:"hooks" json:"hooks"`
+	Model      ModelConfig      `yaml:"model" json:"model"`
+	Models     []ModelConfig    `yaml:"models,omitempty" json:"models,omitempty"`
+	Context    ContextConfig    `yaml:"context" json:"context"`
+	Tools      []ToolConfig     `yaml:"tools" json:"tools"`
+	Hooks      []HookConfig     `yaml:"hooks" json:"hooks"`
+	Delegation DelegationConfig `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+}
+
+// DelegationConfig defines delegation behavior.
+type DelegationConfig struct {
+	MaxDepth           int   `yaml:"max_depth,omitempty" json:"max_depth,omitempty"`
+	MaxConcurrent      int   `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
+	IterationsPerDepth []int `yaml:"iterations_per_depth,omitempty" json:"iterations_per_depth,omitempty"`
 }
 
 // ModelConfig defines the LLM provider and parameters.
 type ModelConfig struct {
-	Provider    string  `yaml:"provider" json:"provider"`
 	Name        string  `yaml:"name" json:"name"`
+	Provider    string  `yaml:"provider" json:"provider"`
 	MaxTokens   int     `yaml:"max_tokens" json:"max_tokens"`
 	Temperature float64 `yaml:"temperature" json:"temperature"`
 	BaseURL     string  `yaml:"base_url" json:"base_url"`

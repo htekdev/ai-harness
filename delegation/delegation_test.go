@@ -1,6 +1,7 @@
 package delegation
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -12,8 +13,8 @@ func TestDelegateToolDefinition(t *testing.T) {
 	if def.Name != "delegate" {
 		t.Errorf("expected name 'delegate', got %q", def.Name)
 	}
-	if len(def.Parameters) != 4 {
-		t.Errorf("expected 4 parameters, got %d", len(def.Parameters))
+	if len(def.Parameters) != 6 {
+		t.Errorf("expected 6 parameters, got %d", len(def.Parameters))
 	}
 }
 
@@ -45,7 +46,7 @@ func TestDelegator_CreateDelegateToolHandler_MissingTask(t *testing.T) {
 
 	handler := d.CreateDelegateToolHandler()
 	args := json.RawMessage(`{"tools":[{"name":"t","description":"d","parameters":{},"script":"def run(args):\n    return \"ok\""}]}`)
-	_, err := handler(nil, args)
+	_, err := handler(context.Background(), args)
 	if err == nil {
 		t.Fatal("expected error for missing task")
 	}
@@ -59,7 +60,7 @@ func TestDelegator_CreateDelegateToolHandler_MissingTools(t *testing.T) {
 
 	handler := d.CreateDelegateToolHandler()
 	args := json.RawMessage(`{"task":"do something","tools":[]}`)
-	_, err := handler(nil, args)
+	_, err := handler(context.Background(), args)
 	if err == nil {
 		t.Fatal("expected error for empty tools")
 	}
@@ -73,7 +74,7 @@ func TestDelegator_CreateDelegateToolHandler_BadScript(t *testing.T) {
 
 	handler := d.CreateDelegateToolHandler()
 	args := json.RawMessage(`{"task":"test","tools":[{"name":"bad","description":"d","parameters":{},"script":"this is not valid starlark!!!"}]}`)
-	_, err := handler(nil, args)
+	_, err := handler(context.Background(), args)
 	if err == nil {
 		t.Fatal("expected error for bad script")
 	}
@@ -122,3 +123,4 @@ func TestRequest_Unmarshal(t *testing.T) {
 		t.Errorf("system_prompt: %q", req.SystemPrompt)
 	}
 }
+

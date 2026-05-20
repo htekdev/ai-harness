@@ -87,7 +87,7 @@ func TestNewMissingFile(t *testing.T) {
 }
 
 func TestNewFromConfigNil(t *testing.T) {
-	_, err := NewFromConfig(nil)
+	_, err := NewFromConfig(nil, nil)
 	if err == nil {
 		t.Fatal("expected error for nil config")
 	}
@@ -105,7 +105,7 @@ func TestNewFromConfigRequiresAPIKey(t *testing.T) {
 		_ = os.Unsetenv(cfg.Model.APIKeyEnv)
 	}()
 
-	_, err := NewFromConfig(cfg)
+	_, err := NewFromConfig(cfg, nil)
 	if err == nil {
 		t.Fatal("expected error when API key env var is missing")
 	}
@@ -115,7 +115,7 @@ func TestNewFromConfigRegistersConfigToolsAndHooks(t *testing.T) {
 	setTestEnv(t, "AI_HARNESS_TEST_KEY", "secret")
 	cfg := testConfig()
 
-	h, err := NewFromConfig(cfg)
+	h, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestHarnessRunWithRegisteredTool(t *testing.T) {
 		`{"choices":[{"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}`,
 	})
 
-	h, err := NewFromConfig(cfg)
+	h, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestHarnessRunWithUnimplementedToolPlaceholder(t *testing.T) {
 		`{"choices":[{"message":{"role":"assistant","content":"handled"},"finish_reason":"stop"}]}`,
 	})
 
-	h, err := NewFromConfig(cfg)
+	h, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -218,7 +218,7 @@ def handle(event, payload):
 `,
 	}}
 
-	h, err := NewFromConfig(cfg)
+	h, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -263,7 +263,7 @@ def run(args):
 		`{"choices":[{"message":{"role":"assistant","content":"handled"},"finish_reason":"stop"}]}`,
 	})
 
-	h, err := NewFromConfig(cfg)
+	h, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -298,7 +298,7 @@ def handle(event, payload):
 `,
 	}}
 
-	h, err := NewFromConfig(cfg)
+	h, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestRegisterHookReplacesConfiguredHook(t *testing.T) {
 	setTestEnv(t, "AI_HARNESS_TEST_KEY", "secret")
 	cfg := testConfig()
 
-	h, err := NewFromConfig(cfg)
+	h, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -368,3 +368,4 @@ context:
 		t.Fatal("expected agent")
 	}
 }
+

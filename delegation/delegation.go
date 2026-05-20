@@ -9,7 +9,9 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/htekdev/ai-harness/agent"
 	"github.com/htekdev/ai-harness/completion"
@@ -19,11 +21,11 @@ import (
 	"github.com/htekdev/ai-harness/tools"
 )
 
-// MaxDelegationDepth is the maximum recursion depth for delegation.
-const MaxDelegationDepth = 1
+// MaxDelegationDepth is the default maximum recursion depth for delegation.
+// Can be overridden via DelegatorConfig.MaxDepth.
+const MaxDelegationDepth = 3
 
 // MaxDelegateToolIterations is the max tool-call loops for delegate agents.
-// Kept low to fail fast when tools error repeatedly.
 const MaxDelegateToolIterations = 5
 
 // MaxToolRetries is how many times a tool can error before the retry guard blocks it.
@@ -56,6 +58,8 @@ type HookSpec struct {
 // Request contains everything needed to spin up a delegate agent.
 type Request struct {
 	Task         string     `json:"task"`
+	Agent        string     `json:"agent,omitempty"`
+	Model        string     `json:"model,omitempty"`
 	Tools        []ToolSpec `json:"tools"`
 	Hooks        []HookSpec `json:"hooks,omitempty"`
 	SystemPrompt string     `json:"system_prompt,omitempty"`
@@ -70,20 +74,44 @@ type Result struct {
 
 // Delegator manages the creation and execution of delegate agents.
 type Delegator struct {
-	client       *completion.Client
-	engine       *scripting.Engine
-	hookSystem   *hooks.System
-	systemPrompt string
-	logger       *log.Logger
+	client             *completion.Client
+	engine             *scripting.Engine
+	hookSystem         *hooks.System
+	systemPrompt       string
+	logger             *log.Logger
+	maxDepth           int
+	iterationsPerDepth []int
+	agentResolver      AgentResolver
+	clientFactory      ClientFactory
+	taskStore          *TaskStore
 }
+
+// AgentResolver resolves a named agent to its configuration.
+type AgentResolver func(name string) (*ResolvedAgent, error)
+
+// ResolvedAgent holds a fully resolved agent config ready to spawn.
+type ResolvedAgent struct {
+	SystemPrompt string
+	Model        string
+	Tools        []ToolSpec
+	Hooks        []HookSpec
+}
+
+// ClientFactory creates a completion client for a given model name.
+type ClientFactory func(modelName string) (*completion.Client, error)
 
 // DelegatorConfig configures the delegator.
 type DelegatorConfig struct {
-	Client       *completion.Client
-	Engine       *scripting.Engine
-	HookSystem   *hooks.System
-	SystemPrompt string
-	Logger       *log.Logger
+	Client             *completion.Client
+	Engine             *scripting.Engine
+	HookSystem         *hooks.System
+	SystemPrompt       string
+	Logger             *log.Logger
+	MaxDepth           int
+	IterationsPerDepth []int
+	AgentResolver      AgentResolver
+	ClientFactory      ClientFactory
+	TaskStore          *TaskStore
 }
 
 // NewDelegator creates a new Delegator.
@@ -94,17 +122,69 @@ func NewDelegator(cfg DelegatorConfig) *Delegator {
 	if cfg.Engine == nil {
 		cfg.Engine = scripting.NewEngine()
 	}
+	maxDepth := cfg.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = MaxDelegationDepth
+	}
+	if maxDepth > MaxHardDepth {
+		maxDepth = MaxHardDepth
+	}
+	iterPerDepth := cfg.IterationsPerDepth
+	if len(iterPerDepth) == 0 {
+		iterPerDepth = []int{20, 10, 5, 3}
+	}
 	return &Delegator{
-		client:       cfg.Client,
-		engine:       cfg.Engine,
-		hookSystem:   cfg.HookSystem,
-		systemPrompt: cfg.SystemPrompt,
-		logger:       cfg.Logger,
+		client:             cfg.Client,
+		engine:             cfg.Engine,
+		hookSystem:         cfg.HookSystem,
+		systemPrompt:       cfg.SystemPrompt,
+		logger:             cfg.Logger,
+		maxDepth:           maxDepth,
+		iterationsPerDepth: iterPerDepth,
+		agentResolver:      cfg.AgentResolver,
+		clientFactory:      cfg.ClientFactory,
+		taskStore:          cfg.TaskStore,
 	}
 }
 
 // Execute spins up a delegate agent with the specified tools and hooks, then runs the task.
 func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
+	// Check depth limit
+	currentDepth := GetDepth(ctx)
+	if currentDepth >= d.maxDepth {
+		return nil, fmt.Errorf("delegation depth limit reached (%d/%d)", currentDepth, d.maxDepth)
+	}
+
+	// Resolve named agent if specified
+	if req.Agent != "" && d.agentResolver != nil {
+		resolved, err := d.agentResolver(req.Agent)
+		if err != nil {
+			return nil, fmt.Errorf("resolve agent %q: %w", req.Agent, err)
+		}
+		// Merge: agent provides base, request overrides/adds
+		if req.SystemPrompt == "" {
+			req.SystemPrompt = resolved.SystemPrompt
+		}
+		if req.Model == "" {
+			req.Model = resolved.Model
+		}
+		// Merge tools: agent tools + request tools (request tools override by name)
+		req.Tools = mergeToolSpecs(resolved.Tools, req.Tools)
+		// Merge hooks: agent hooks + request hooks
+		req.Hooks = append(resolved.Hooks, req.Hooks...)
+	}
+
+	// Resolve model-specific client
+	client := d.client
+	if req.Model != "" && d.clientFactory != nil {
+		modelClient, err := d.clientFactory(req.Model)
+		if err != nil {
+			d.logger.Printf("model %q not found in registry, using default", req.Model)
+		} else {
+			client = modelClient
+		}
+	}
+
 	if d.hookSystem != nil {
 		preResult := d.hookSystem.Dispatch(ctx, hooks.EventDelegatePre, &req)
 		if preResult.Action == hooks.ActionBlock {
@@ -115,6 +195,10 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
 				return nil, fmt.Errorf("delegate.pre modify payload: %w", err)
 			}
 		}
+	}
+
+	if len(req.Tools) == 0 {
+		return nil, fmt.Errorf("delegate requires at least one tool (provide tools or use a named agent)")
 	}
 
 	registry := tools.NewRegistry()
@@ -211,16 +295,28 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
 		MaxTokens:    128000,
 	})
 
+	// Determine max iterations for this depth level
+	maxIter := MaxDelegateToolIterations
+	nextDepth := currentDepth + 1
+	if nextDepth < len(d.iterationsPerDepth) {
+		maxIter = d.iterationsPerDepth[nextDepth]
+	}
+	if maxIter <= 0 {
+		maxIter = 3
+	}
+
 	delegateAgent := agent.New(agent.Options{
-		Client:            d.client,
+		Client:            client,
 		Tools:             registry,
 		Hooks:             hookSystem,
 		Context:           ctxMgr,
 		Logger:            d.logger,
-		MaxToolIterations: MaxDelegateToolIterations,
+		MaxToolIterations: maxIter,
 	})
 
-	turnResult, err := delegateAgent.Run(ctx, req.Task)
+	// Propagate depth to child context
+	childCtx := WithDepth(ctx, nextDepth)
+	turnResult, err := delegateAgent.Run(childCtx, req.Task)
 	if err != nil {
 		return nil, fmt.Errorf("delegate execution: %w", err)
 	}
@@ -341,11 +437,12 @@ func (d *Delegator) CreateDelegateToolHandler() tools.Handler {
 			return "", fmt.Errorf("parse delegate args: %w", err)
 		}
 
-		if len(req.Tools) == 0 {
-			return "", fmt.Errorf("delegate requires at least one tool definition")
-		}
 		if req.Task == "" {
 			return "", fmt.Errorf("delegate requires a task")
+		}
+		// Tools can come from agent resolution, so don't require them upfront
+		if len(req.Tools) == 0 && req.Agent == "" {
+			return "", fmt.Errorf("delegate requires tools or an agent name")
 		}
 
 		result, err := d.Execute(ctx, req)
@@ -357,21 +454,139 @@ func (d *Delegator) CreateDelegateToolHandler() tools.Handler {
 	}
 }
 
+// CreateAsyncDelegateHandlers creates handlers for async delegation tools.
+func (d *Delegator) CreateAsyncDelegateHandlers() map[string]tools.Handler {
+	handlers := make(map[string]tools.Handler)
+
+	handlers["delegate_async"] = func(ctx context.Context, args json.RawMessage) (string, error) {
+		var req Request
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", fmt.Errorf("parse delegate_async args: %w", err)
+		}
+		if req.Task == "" {
+			return "", fmt.Errorf("delegate_async requires a task")
+		}
+		if len(req.Tools) == 0 && req.Agent == "" {
+			return "", fmt.Errorf("delegate_async requires tools or an agent name")
+		}
+
+		if d.taskStore == nil {
+			return "", fmt.Errorf("async delegation not configured (no task store)")
+		}
+
+		taskID := fmt.Sprintf("task_%d", time.Now().UnixNano())
+		entry, err := d.taskStore.Submit(taskID)
+		if err != nil {
+			return "", fmt.Errorf("submit async task: %w", err)
+		}
+
+		// Launch in background goroutine
+		go func() {
+			result, err := d.Execute(ctx, req)
+			if err != nil {
+				d.taskStore.Fail(entry.ID, err)
+			} else {
+				d.taskStore.Complete(entry.ID, result)
+			}
+		}()
+
+		return fmt.Sprintf(`{"task_id": "%s", "status": "running"}`, taskID), nil
+	}
+
+	handlers["delegate_status"] = func(ctx context.Context, args json.RawMessage) (string, error) {
+		var params struct {
+			TaskID string `json:"task_id"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			return "", err
+		}
+		if d.taskStore == nil {
+			return "", fmt.Errorf("async delegation not configured")
+		}
+		entry, ok := d.taskStore.Get(params.TaskID)
+		if !ok {
+			return fmt.Sprintf(`{"error": "task %s not found"}`, params.TaskID), nil
+		}
+		return fmt.Sprintf(`{"task_id": "%s", "status": "%s"}`, entry.ID, entry.Status), nil
+	}
+
+	handlers["delegate_result"] = func(ctx context.Context, args json.RawMessage) (string, error) {
+		var params struct {
+			TaskID string `json:"task_id"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			return "", err
+		}
+		if d.taskStore == nil {
+			return "", fmt.Errorf("async delegation not configured")
+		}
+		entry, ok := d.taskStore.Get(params.TaskID)
+		if !ok {
+			return "", fmt.Errorf("task %s not found", params.TaskID)
+		}
+		if entry.Status == TaskStatusRunning {
+			return fmt.Sprintf(`{"task_id": "%s", "status": "running", "message": "task still in progress"}`, entry.ID), nil
+		}
+		if entry.Status == TaskStatusFailed {
+			return fmt.Sprintf(`{"task_id": "%s", "status": "failed", "error": "%s"}`, entry.ID, entry.Error.Error()), nil
+		}
+		return entry.Result.Response, nil
+	}
+
+	handlers["delegate_await"] = func(ctx context.Context, args json.RawMessage) (string, error) {
+		var params struct {
+			TaskIDs string `json:"task_ids"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			return "", err
+		}
+		if d.taskStore == nil {
+			return "", fmt.Errorf("async delegation not configured")
+		}
+
+		ids := splitCSV(params.TaskIDs)
+		entries, err := d.taskStore.WaitMultiple(ctx, ids)
+		if err != nil {
+			return "", err
+		}
+
+		var results []string
+		for _, entry := range entries {
+			if entry == nil {
+				continue
+			}
+			switch entry.Status {
+			case TaskStatusCompleted:
+				results = append(results, fmt.Sprintf(`{"task_id": "%s", "status": "completed", "response": %s}`,
+					entry.ID, jsonString(entry.Result.Response)))
+			case TaskStatusFailed:
+				results = append(results, fmt.Sprintf(`{"task_id": "%s", "status": "failed", "error": "%s"}`,
+					entry.ID, entry.Error.Error()))
+			}
+		}
+
+		return "[" + joinStrings(results, ",") + "]", nil
+	}
+
+	return handlers
+}
+
 // DelegateToolDefinition returns the tool definition for the built-in delegate meta-tool.
 func DelegateToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name: "delegate",
-		Description: `Spin up a sub-agent with custom tools and hooks to handle a task.
-Available Starlark built-ins for scripts: time.now(), env(key), json.encode(val), json.decode(s), log(msg), random(min, max), sleep(ms), str(val), math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x), os.cwd(), os.hostname(), os.platform(), os.args(), url.parse(s), url.encode(params), uuid.v4(), http.get(url, headers?, timeout_seconds?), http.post(url, body?, headers?, timeout_seconds?), re.match(pattern, text), re.find_all(pattern, text), re.replace(pattern, repl, text), hash.sha256(text), hash.md5(text), cache.set/get/has/delete/clear, and the fs module.
-Hook scripts also get: allow(), block(reason), modify(payload), and optional when expressions for conditional execution. Supported hook events include tool.pre/post, completion.pre/post, turn.start/end, session.start/end, and delegate.pre/post.
-Starlark is Python-like but has NO imports. Use only the built-ins listed above.`,
+		Description: `Spin up a sub-agent to handle a task. You can specify a named agent or provide inline tools/hooks.
+If using a named agent, its tools, hooks, model, and system prompt are loaded automatically.
+You can override model or add extra tools/hooks on top of the agent's defaults.`,
 		Parameters: []tools.Parameter{
 			{Name: "task", Type: tools.TypeString, Description: "What you want the delegate to accomplish", Required: true},
+			{Name: "agent", Type: tools.TypeString, Description: "Name of a custom agent to use (from .harness/agents/)", Required: false},
+			{Name: "model", Type: tools.TypeString, Description: "Override model for this delegate", Required: false},
 			{
 				Name:        "tools",
 				Type:        tools.TypeArray,
-				Description: "Array of tool definitions for the delegate",
-				Required:    true,
+				Description: "Array of tool definitions (required if no agent specified)",
+				Required:    false,
 				Items: &tools.ParameterSchema{
 					Type: tools.TypeObject,
 					Properties: map[string]*tools.ParameterSchema{
@@ -380,7 +595,7 @@ Starlark is Python-like but has NO imports. Use only the built-ins listed above.
 						"parameters":  {Type: tools.TypeObject, Description: "Tool parameters as JSON Schema properties"},
 						"script":      {Type: tools.TypeString, Description: "Starlark script implementing run(args)"},
 					},
-					Required: []string{"name", "description", "script"},
+					Required: []string{"name", "script"},
 				},
 			},
 			{
@@ -394,13 +609,13 @@ Starlark is Python-like but has NO imports. Use only the built-ins listed above.
 						"event":    {Type: tools.TypeString, Description: "Hook event (tool.pre, tool.post, etc.)"},
 						"handler":  {Type: tools.TypeString, Description: "Hook handler name"},
 						"script":   {Type: tools.TypeString, Description: "Starlark script implementing handle(event, payload)"},
-						"when":     {Type: tools.TypeString, Description: "Optional Starlark expression to decide whether the hook fires"},
+						"when":     {Type: tools.TypeString, Description: "Optional Starlark expression"},
 						"priority": {Type: tools.TypeNumber, Description: "Execution priority (lower = first)"},
 					},
 					Required: []string{"event", "handler", "script"},
 				},
 			},
-			{Name: "system_prompt", Type: tools.TypeString, Description: "System prompt for the delegate (inherits parent if omitted)", Required: false},
+			{Name: "system_prompt", Type: tools.TypeString, Description: "System prompt override (uses agent's prompt if omitted)", Required: false},
 		},
 	}
 }
@@ -416,4 +631,50 @@ func convertParams(params map[string]ParamSpec) []tools.Parameter {
 		})
 	}
 	return result
+}
+
+// mergeToolSpecs merges base tools with override tools. Overrides win on name collision.
+func mergeToolSpecs(base, overrides []ToolSpec) []ToolSpec {
+	if len(overrides) == 0 {
+		return base
+	}
+	if len(base) == 0 {
+		return overrides
+	}
+
+	seen := make(map[string]int, len(base))
+	merged := make([]ToolSpec, len(base))
+	copy(merged, base)
+	for i, t := range merged {
+		seen[t.Name] = i
+	}
+
+	for _, t := range overrides {
+		if idx, exists := seen[t.Name]; exists {
+			merged[idx] = t
+		} else {
+			merged = append(merged, t)
+		}
+	}
+	return merged
+}
+
+func splitCSV(s string) []string {
+	var parts []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
+}
+
+func joinStrings(ss []string, sep string) string {
+	return strings.Join(ss, sep)
+}
+
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

@@ -12,8 +12,14 @@ import (
 )
 
 func main() {
-	// Load harness from config (includes Starlark tools, hooks, and delegate meta-tool)
-	h, err := harness.New("harness.yaml")
+	// Detect config: prefer harness.md, fall back to harness.yaml
+	configPath := "harness.md"
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		configPath = "harness.yaml"
+	}
+
+	// Load harness from config (includes tools, hooks, agents, and delegate meta-tool)
+	h, err := harness.New(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading harness: %v\n", err)
 		os.Exit(1)
