@@ -1,3 +1,25 @@
+---
+model:
+  name: gpt-4o
+  provider: copilot
+  max_tokens: 4096
+  temperature: 0.4
+  api_key_env: GITHUB_TOKEN
+delegation:
+  max_depth: 4
+  max_concurrent: 6
+  iterations_per_depth: [12, 6, 3]
+context:
+  max_history: 30
+  max_tokens: 64000
+meta:
+  enabled: true
+  max_tools: 20
+  max_hooks: 12
+  max_agents: 6
+  max_call_depth: 4
+---
+
 # Base Identity
 
 You are the base harness identity.

@@ -1,6 +1,8 @@
 package compose
 
 // Block represents a parsed composable markdown block.
+// Everything is in one .md file: frontmatter has config (name, condition, tools, hooks),
+// body is pure context (prose injected into the agent's knowledge).
 type Block struct {
 	Name        string
 	Description string
@@ -11,7 +13,7 @@ type Block struct {
 	Source      string // File path this block was loaded from
 }
 
-// ToolDef is a tool definition from a composable block.
+// ToolDef is a tool definition from a composable block's frontmatter.
 type ToolDef struct {
 	Name        string              `yaml:"name"`
 	Description string              `yaml:"description"`
@@ -27,16 +29,20 @@ type ParamDef struct {
 	Description string `yaml:"description,omitempty"`
 }
 
-// HookDef is a hook definition from a composable block.
+// HookDef is a hook definition from a composable block's frontmatter.
 type HookDef struct {
 	Event    string `yaml:"event"`
 	Handler  string `yaml:"handler"`
 	Priority int    `yaml:"priority,omitempty"`
 	When     string `yaml:"when,omitempty"`
 	Script   string `yaml:"script,omitempty"`
+	Tool     string `yaml:"tool,omitempty"`
+	Action   string `yaml:"action,omitempty"`
+	Reason   string `yaml:"reason,omitempty"`
 }
 
-// Policy represents the singleton parameters from harness.yaml.
+// Policy represents singleton parameters parsed from identity.md frontmatter.
+// All config lives in .md frontmatter — there are NO separate .yaml files.
 type Policy struct {
 	Model      ModelPolicy      `yaml:"model"`
 	Models     []ModelPolicy    `yaml:"models,omitempty"`

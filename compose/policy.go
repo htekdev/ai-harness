@@ -92,21 +92,28 @@ func DefaultPolicy() Policy {
 	}
 }
 
-// LoadPolicy loads the base policy from .harness/harness.yaml, applying defaults.
+// LoadPolicy loads the base policy from .harness/identity.md frontmatter, applying defaults.
+// All config lives in .md frontmatter — there are NO separate .yaml files.
 func LoadPolicy(baseDir string) (Policy, error) {
 	policy := DefaultPolicy()
-	path := filepath.Join(baseDir, ".harness", "harness.yaml")
+	path := filepath.Join(baseDir, ".harness", "identity.md")
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return policy, nil
 	}
 	if err != nil {
-		return Policy{}, fmt.Errorf("read policy %s: %w", path, err)
+		return Policy{}, fmt.Errorf("read identity %s: %w", path, err)
 	}
 
-	override, err := parsePolicyOverride(data)
+	frontmatter, _, err := splitFrontmatter(data)
 	if err != nil {
-		return Policy{}, fmt.Errorf("parse policy %s: %w", path, err)
+		// No frontmatter means no policy override — use defaults.
+		return policy, nil
+	}
+
+	override, err := parsePolicyOverride(frontmatter)
+	if err != nil {
+		return Policy{}, fmt.Errorf("parse policy from identity.md: %w", err)
 	}
 	policy = mergePolicy(policy, override)
 	if err := validatePolicy(policy); err != nil {
@@ -115,7 +122,8 @@ func LoadPolicy(baseDir string) (Policy, error) {
 	return policy, nil
 }
 
-// ResolvePolicy loads the base policy and applies any agent-specific override.
+// ResolvePolicy loads the base policy and applies any agent-specific override
+// from .harness/agents/{name}/identity.md frontmatter.
 func ResolvePolicy(baseDir, agentName string) (Policy, error) {
 	policy, err := LoadPolicy(baseDir)
 	if err != nil {
@@ -137,18 +145,23 @@ func ResolvePolicy(baseDir, agentName string) (Policy, error) {
 }
 
 func loadAgentPolicyOverride(baseDir, agentName string) (policyOverride, error) {
-	path := filepath.Join(baseDir, ".harness", "agents", agentName, "agent.yaml")
+	path := filepath.Join(baseDir, ".harness", "agents", agentName, "identity.md")
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return policyOverride{}, nil
 	}
 	if err != nil {
-		return policyOverride{}, fmt.Errorf("read agent policy %s: %w", path, err)
+		return policyOverride{}, fmt.Errorf("read agent identity %s: %w", path, err)
 	}
 
-	override, err := parsePolicyOverride(data)
+	frontmatter, _, err := splitFrontmatter(data)
 	if err != nil {
-		return policyOverride{}, fmt.Errorf("parse agent policy %s: %w", path, err)
+		return policyOverride{}, nil // No frontmatter = no override
+	}
+
+	override, err := parsePolicyOverride(frontmatter)
+	if err != nil {
+		return policyOverride{}, fmt.Errorf("parse agent policy from identity.md: %w", err)
 	}
 	return override, nil
 }

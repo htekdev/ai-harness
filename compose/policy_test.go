@@ -10,7 +10,9 @@ import (
 
 func TestLoadPolicy_Parsing(t *testing.T) {
 	baseDir := t.TempDir()
-	writeTestFile(t, filepath.Join(baseDir, ".harness", "harness.yaml"), `model:
+	// Policy now lives in identity.md frontmatter — no separate .yaml files.
+	writeTestFile(t, filepath.Join(baseDir, ".harness", "identity.md"), `---
+model:
   name: claude-sonnet-4.5
   provider: anthropic
   max_tokens: 8192
@@ -29,6 +31,11 @@ meta:
   max_hooks: 8
   max_agents: 4
   max_call_depth: 3
+---
+
+# Base Identity
+
+You are the base assistant.
 `)
 
 	policy, err := LoadPolicy(baseDir)
@@ -56,12 +63,16 @@ func TestLoadPolicy_Defaults(t *testing.T) {
 
 func TestLoadPolicy_Validation(t *testing.T) {
 	baseDir := t.TempDir()
-	writeTestFile(t, filepath.Join(baseDir, ".harness", "harness.yaml"), `model:
+	writeTestFile(t, filepath.Join(baseDir, ".harness", "identity.md"), `---
+model:
   name: bad
   provider: openai
   max_tokens: 0
   temperature: 4
   api_key_env: TOKEN
+---
+
+# Bad Identity
 `)
 
 	_, err := LoadPolicy(baseDir)
@@ -75,7 +86,9 @@ func TestLoadPolicy_Validation(t *testing.T) {
 
 func TestResolvePolicy_AgentOverrides(t *testing.T) {
 	baseDir := t.TempDir()
-	writeTestFile(t, filepath.Join(baseDir, ".harness", "harness.yaml"), `model:
+	// Base policy in identity.md frontmatter
+	writeTestFile(t, filepath.Join(baseDir, ".harness", "identity.md"), `---
+model:
   name: gpt-4o
   provider: openai
   max_tokens: 4096
@@ -90,13 +103,23 @@ meta:
   max_hooks: 10
   max_agents: 5
   max_call_depth: 4
+---
+
+# Base Identity
 `)
-	writeTestFile(t, filepath.Join(baseDir, ".harness", "agents", "coder", "agent.yaml"), `model:
+	// Agent policy override in agent's identity.md frontmatter
+	writeTestFile(t, filepath.Join(baseDir, ".harness", "agents", "coder", "identity.md"), `---
+model:
   name: gpt-5-mini
 context:
   max_history: 10
 meta:
   max_tools: 5
+---
+
+# Coder Identity
+
+You are the coding specialist.
 `)
 
 	policy, err := ResolvePolicy(baseDir, "coder")
