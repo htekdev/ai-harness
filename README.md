@@ -1,26 +1,42 @@
-# AI Harness
+# Harness as Code
 
-A minimal, extensible AI agent harness in Go that makes building **self-extending, governed agents** trivial. Define tools, hooks, and entire sub-agents in Markdown files using embedded Starlark scripts — no external plugins, no subprocess protocols, no framework lock-in.
+**Declarative AI agent governance in Go.** Define tools, hooks, delegation rules, and entire sub-agents in version-controlled Markdown files — reviewable in PRs, testable in CI, reproducible across environments.
 
-## Why this project exists
+> *Like Infrastructure as Code, but for AI agent behavior.*
+> Every prompt ships with its governance. Every agent behavior is reproducible, reviewable, and testable.
 
-Most agent frameworks force a choice: either you get a rigid plugin system that's hard to customize, or you get raw LLM access with no guardrails. `ai-harness` takes a different approach:
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-All_Passing-brightgreen.svg)]()
 
-**Everything is Markdown. Everything is governed by hooks. Agents can extend themselves at runtime — recursively.**
+---
 
-- **Markdown-first**: Configuration lives in `harness.md` (YAML frontmatter + markdown body as system prompt). Tools, hooks, and agents are individual `.md` files in `.harness/`
-- **Self-extending**: The `delegate` meta-tool lets agents spawn sub-agents recursively — building trees of specialized workers on the fly
-- **Governed by default**: Built-in retry guards, path traversal protection, secret detection, and hook-based lifecycle control prevent runaway behavior without relying on prompt engineering
-- **Custom agents**: Named agents (`.harness/agents/*.md`) bundle model + prompt + tools + hooks into reusable, composable units
-- **Parallel & async**: Tool calls execute concurrently within a turn. Delegation supports both synchronous and asynchronous modes
-- **Minimal**: Plain Go interfaces — `tools.Handler` is just `func(ctx, args) (string, error)`
-- **Portable**: Works with GitHub Copilot, OpenAI, or any compatible API
+## The Problem
 
-### Core philosophy
+Most agent frameworks force a choice:
+
+| Approach | Tradeoff |
+|----------|----------|
+| Rigid plugin systems | Hard to customize, vendor lock-in |
+| Raw LLM wrappers | No guardrails, no governance |
+| Python mega-frameworks | 200+ deps, hidden state, slow iteration |
+
+**Harness as Code** takes a different approach: your `harness.md` file IS the control plane for an AI agent — governance, tools, delegation limits, and system prompt in one reviewable artifact.
+
+## What Makes It Different
+
+- **Markdown-first** — `harness.md` (YAML frontmatter + body as system prompt) defines your agent declaratively. `.harness/` directory adds tools, hooks, and sub-agents as individual `.md` files.
+- **Governed by default** — Hooks enforce safety through architecture, not instructions. You don't make agents trustworthy by writing better prompts — you make them trustworthy by engineering harnesses where wrong behavior is architecturally impossible.
+- **Self-extending** — The `delegate` meta-tool lets agents create tools and spawn sub-agents recursively at runtime.
+- **Minimal** — Single Go binary, ~5 dependencies, compiles in seconds. `tools.Handler` is just `func(ctx, args) (string, error)`.
+- **Portable** — Works with GitHub Copilot, OpenAI, or any compatible chat completions API.
+- **Testable** — Built-in eval framework validates agent behavior against real models in CI.
+
+### Core Philosophy
 
 > Make the right thing to do the easy thing to do.
 
-The harness enforces safety through architecture, not instructions:
+The harness enforces safety through architecture:
 - `fs.replace` **fails** if the match isn't unique (forces surgical edits)
 - Recursive delegation is depth-limited (configurable, hard cap at 5)
 - Iterations decrease per depth level (20 → 10 → 5 → 3)
@@ -28,50 +44,68 @@ The harness enforces safety through architecture, not instructions:
 - Path operations are jailed to the working directory at the Go level
 - Hooks run at every lifecycle point — blocking is a first-class action
 
+### The DevOps Parallel
+
+| DevOps Gave Humans | Harness as Code Gives Agents |
+|---|---|
+| Infrastructure as Code | Agent governance as code |
+| CI/CD pipelines | Agent loops with termination and retry |
+| Deployment gates | Autonomy levels and approval gates |
+| Git hooks | Pre-tool hookflows |
+| RBAC / least privilege | Tool registry access control |
+| Observability | Agent event streams and metrics |
+
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                        AI Harness                              │
-├───────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌──────────┐    ┌──────────┐    ┌──────────────┐           │
-│  │  Config  │───▶│  Agent   │───▶│  Completion  │           │
-│  │ (MD+Dir) │    │  Loop    │    │  Client      │           │
-│  └──────────┘    └────┬─────┘    └──────────────┘           │
-│                       │                                       │
-│       ┌───────────────┼───────────────┐                      │
-│       ▼               ▼               ▼                      │
-│  ┌──────────┐   ┌──────────┐   ┌──────────────┐            │
-│  │  Hook    │   │  Tool    │   │   Context    │            │
-│  │  System  │   │ Registry │   │   Manager    │            │
-│  └──────────┘   └────┬─────┘   └──────────────┘            │
-│                       │                                       │
-│       ┌───────────────┼───────────────┐                      │
-│       ▼               ▼               ▼                      │
-│  ┌──────────┐   ┌──────────┐   ┌──────────────┐            │
-│  │ Starlark │   │ Delegate │   │  fs/edit     │            │
-│  │ Engine   │   │  System  │   │  Built-ins   │            │
-│  └──────────┘   └──────────┘   └──────────────┘            │
-│                       │                                       │
-│       ┌───────────────┼───────────────┐                      │
-│       ▼               ▼               ▼                      │
-│  ┌──────────┐   ┌──────────┐   ┌──────────────┐            │
-│  │  Model   │   │  Agent   │   │   Task       │            │
-│  │ Registry │   │ Registry │   │   Store      │            │
-│  └──────────┘   └──────────┘   └──────────────┘            │
-│                                                               │
-└───────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                     HARNESS AS CODE                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌──────────┐    ┌──────────┐    ┌──────────────┐               │
+│  │  Config  │───▶│  Agent   │───▶│  Completion  │               │
+│  │ (MD+Dir) │    │  Loop    │    │  Client      │               │
+│  └──────────┘    └────┬─────┘    └──────────────┘               │
+│                       │                                           │
+│       ┌───────────────┼───────────────┐                          │
+│       ▼               ▼               ▼                          │
+│  ┌──────────┐   ┌──────────┐   ┌──────────────┐                │
+│  │  Hook    │   │  Tool    │   │   Context    │                │
+│  │  System  │   │ Registry │   │   Manager    │                │
+│  └──────────┘   └────┬─────┘   └──────────────┘                │
+│                       │                                           │
+│       ┌───────────────┼───────────────┐                          │
+│       ▼               ▼               ▼                          │
+│  ┌──────────┐   ┌──────────┐   ┌──────────────┐                │
+│  │ Starlark │   │ Delegate │   │  fs/edit     │                │
+│  │ Engine   │   │  System  │   │  Built-ins   │                │
+│  └──────────┘   └──────────┘   └──────────────┘                │
+│                       │                                           │
+│       ┌───────────────┼───────────────┐                          │
+│       ▼               ▼               ▼                          │
+│  ┌──────────┐   ┌──────────┐   ┌──────────────┐                │
+│  │  Model   │   │  Agent   │   │   Task       │                │
+│  │ Registry │   │ Registry │   │   Store      │                │
+│  └──────────┘   └──────────┘   └──────────────┘                │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Installation
 
 ```bash
-go get github.com/htekdev/ai-harness
 go install github.com/htekdev/ai-harness/cmd/example@latest
 ```
 
-## Quick start
+Or use as a library:
+
+```bash
+go get github.com/htekdev/ai-harness
+```
+
+**Requirements:** Go 1.25+, an API key for any OpenAI-compatible endpoint (GitHub Copilot, OpenAI, etc.)
+
+## Quick Start
 
 ### 1. Define your harness in Markdown
 
@@ -743,6 +777,21 @@ ai-harness/
 └── go.mod
 ```
 
+## Status
+
+**v0.1.0** — Production-ready core. All packages tested, all primitives functional.
+
+| Component | Status |
+|-----------|--------|
+| Config (Markdown + YAML) | ✅ Stable |
+| Agent loop (parallel tools) | ✅ Stable |
+| Hook system (8 lifecycle events) | ✅ Stable |
+| Tool registry + Starlark engine | ✅ Stable |
+| Delegation (sync + async) | ✅ Stable |
+| Completion client (streaming) | ✅ Stable |
+| Eval framework | ✅ Stable |
+| `.harness/` directory convention | ✅ Stable |
+
 ## Contributing
 
 Contributions are welcome. Keep changes small, add tests with code changes, and run:
@@ -750,6 +799,7 @@ Contributions are welcome. Keep changes small, add tests with code changes, and 
 ```bash
 go build ./...
 go test ./... -cover
+go vet ./...
 ```
 
 ## License
