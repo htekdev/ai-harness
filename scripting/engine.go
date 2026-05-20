@@ -35,6 +35,7 @@ import (
 type Engine struct {
 	mu       sync.Mutex
 	builtins starlark.StringDict
+	meta     *MetaContext
 
 	cacheMu   sync.RWMutex
 	cache     map[string]any
@@ -165,7 +166,7 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"find":          starlark.NewBuiltin("fs.find", builtinFsFind),
 	})
 
-	return starlark.StringDict{
+	result := starlark.StringDict{
 		"time":     timeMod,
 		"json":     jsonMod,
 		"math":     mathMod,
@@ -196,6 +197,13 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"random":   starlark.NewBuiltin("random", builtinRandom),
 		"sleep":    starlark.NewBuiltin("sleep", builtinSleep),
 	}
+
+	// Add meta module if configured.
+	if e.meta != nil {
+		result["meta"] = e.makeMetaModule()
+	}
+
+	return result
 }
 
 // CompileToolScript compiles a tool script and returns a ToolRunner.

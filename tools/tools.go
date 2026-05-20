@@ -122,6 +122,41 @@ func (r *Registry) Unregister(name string) bool {
 	return true
 }
 
+// Replace registers a tool, overwriting any existing tool with the same name.
+func (r *Registry) Replace(def Definition, handler Handler) error {
+	if def.Name == "" {
+		return fmt.Errorf("tool name cannot be empty")
+	}
+	if handler == nil {
+		return fmt.Errorf("tool handler cannot be nil")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.tools[def.Name] = registration{
+		Definition: def,
+		Handler:    handler,
+		CreatedAt:  time.Now(),
+	}
+	return nil
+}
+
+// Has reports whether a tool with the given name is registered.
+func (r *Registry) Has(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, exists := r.tools[name]
+	return exists
+}
+
+// Count returns the number of registered tools.
+func (r *Registry) Count() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.tools)
+}
+
 // Execute invokes a tool by name with the given arguments.
 // It respects context cancellation and deadlines.
 func (r *Registry) Execute(ctx context.Context, call Call) Result {
