@@ -1,0 +1,52 @@
+name: "hook-blocking"
+description: "A hook blocks a tool call and the agent adapts gracefully"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful file assistant. You MUST use tools to fulfill requests.
+    Always call read_file when asked to read a file — never refuse or answer
+    from memory. If a tool call is blocked, explain the error to the user.
+  tools:
+    - name: read_file
+      description: "Read a file from the filesystem"
+      parameters:
+        path: { type: string, description: "File path to read", required: true }
+      script: |
+        def run(args):
+          return "File contents: hello world"
+    - name: list_files
+      description: "List files in a directory"
+      parameters:
+        path: { type: string, description: "Directory path", required: true }
+      script: |
+        def run(args):
+          return "file1.txt\nfile2.txt\nfile3.txt"
+  hooks:
+    - name: path_guard
+      event: "tool.pre"
+      when: 'payload["name"] == "read_file"'
+      script: |
+        def handle(event, payload):
+          args = payload["arguments"]
+          path = args.get("path", "")
+          if ".." in path or path.startswith("/etc"):
+            return block("Path traversal blocked: " + path)
+          return allow()
+
+turns:
+  - role: user
+    content: "Please read the file at /etc/passwd and show me its contents."
+
+grade:
+  - type: tool_called
+    tool: read_file
+  - type: hook_blocked
+    value: "path_guard"
+  - type: response_not_contains
+    value: "File contents:"
+  - type: tool_not_called
+    tool: list_files

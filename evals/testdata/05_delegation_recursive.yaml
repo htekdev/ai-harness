@@ -1,0 +1,35 @@
+name: "delegation-recursive"
+description: "Agent delegates a computation task to a sub-agent"
+category: "delegation"
+model: "gpt-4o-mini"
+max_tokens: 1000
+timeout: "90s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. When asked to compute something,
+    delegate the work to a sub-agent by calling the delegate tool.
+    
+    When calling delegate, provide:
+    - task: a clear instruction for the sub-agent
+    - tools: define tools the sub-agent will use
+    
+    Each tool needs: name, description, parameters (object with param specs), and script.
+    The script must define a `def run(args):` function.
+  delegation:
+    max_depth: 3
+    iterations_per_depth: [10, 5, 3]
+
+turns:
+  - role: user
+    content: |
+      Use the delegate tool to compute 5 * 3.
+      In your delegate call, define a tool named "multiply" with parameters
+      "a" (type: number) and "b" (type: number).
+      The tool's script should be: def run(args):\n  return str(int(args["a"]) * int(args["b"]))
+      Set the task to "Use the multiply tool to compute 5 * 3 and report the answer."
+
+grade:
+  - type: delegation_occurred
+  - type: response_contains
+    value: "15"

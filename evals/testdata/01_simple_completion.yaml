@@ -1,0 +1,24 @@
+name: "simple-completion"
+description: "Agent produces a factual response without using tools"
+category: "completion"
+model: "gpt-4o-mini"
+max_tokens: 300
+timeout: "20s"
+
+setup:
+  system_prompt: "You are a helpful assistant. Answer questions concisely and accurately."
+
+turns:
+  - role: user
+    content: "What is the capital of France? Answer in one word."
+
+grade:
+  - type: response_contains
+    value: "Paris"
+  - type: response_not_contains
+    value: "I can't"
+  - type: no_errors
+  - type: completed_within
+    value: "15s"
+  - type: tokens_under
+    value: "500"

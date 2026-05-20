@@ -1,0 +1,30 @@
+name: "async-delegation"
+description: "Agent spawns an async sub-agent task and reports the result"
+category: "delegation"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant that can delegate tasks.
+    Use the delegate tool to spawn sub-agents for complex work.
+    Report results clearly and concisely.
+  delegation:
+    max_depth: 2
+    iterations_per_depth: [10, 5]
+
+turns:
+  - role: user
+    content: |
+      Delegate a task to compute 12 * 12.
+      Create a sub-agent with a 'compute' tool that has parameters 'expression' (string).
+      The tool script should: return "144"
+      Tell the sub-agent to compute 12*12 using the tool.
+
+grade:
+  - type: delegation_occurred
+  - type: response_contains
+    value: "144"
+  - type: max_tool_iterations
+    max_value: 6

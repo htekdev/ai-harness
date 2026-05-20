@@ -1,0 +1,31 @@
+name: "delegation-basic"
+description: "Agent delegates a task to a sub-agent with custom tools"
+category: "delegation"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. When asked to research something,
+    use the delegate tool to spawn a sub-agent with a lookup tool.
+    Pass the task description and define a tool called 'lookup' that
+    returns relevant information.
+  delegation:
+    max_depth: 2
+    iterations_per_depth: [10, 5]
+
+turns:
+  - role: user
+    content: |
+      I need you to delegate to a sub-agent: create a sub-agent with a tool called
+      'lookup' that has a 'query' parameter. The tool script should return
+      "The speed of light is 299792458 meters per second."
+      Ask the sub-agent to look up the speed of light and report back.
+
+grade:
+  - type: delegation_occurred
+  - type: response_matches
+    value: "299,?792,?458"
+  - type: max_tool_iterations
+    max_value: 8

@@ -1,0 +1,31 @@
+name: "multi-turn-conversation"
+description: "Agent maintains context across multiple conversation turns"
+category: "context"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "40s"
+
+setup:
+  system_prompt: "You are a helpful assistant. Remember information from earlier in the conversation."
+  tools:
+    - name: store_note
+      description: "Store a note for later reference"
+      parameters:
+        key: { type: string, description: "Note key", required: true }
+        value: { type: string, description: "Note content", required: true }
+      script: |
+        def run(args):
+          return "Stored: " + args["key"] + " = " + args["value"]
+
+turns:
+  - role: user
+    content: "My favorite color is blue. Remember that."
+  - role: user
+    content: "What is my favorite color?"
+
+grade:
+  - type: response_contains
+    value: "blue"
+  - type: no_errors
+  - type: max_tool_iterations
+    max_value: 4

@@ -1,0 +1,42 @@
+name: "error-recovery"
+description: "Agent adapts when a tool fails — self-healing via alternative approaches"
+category: "self-healing"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant with lookup tools. If a tool fails,
+    try the fallback_lookup tool instead. Always deliver an answer —
+    adapt your approach based on what works.
+  tools:
+    - name: primary_lookup
+      description: "Look up information (may fail)"
+      parameters:
+        query: { type: string, description: "Search query", required: true }
+      script: |
+        def run(args):
+          return "The population of Tokyo is approximately 14 million."
+      error_on_call: 1
+    - name: fallback_lookup
+      description: "Fallback information source — always works"
+      parameters:
+        query: { type: string, description: "Search query", required: true }
+      script: |
+        def run(args):
+          return "The population of Tokyo is approximately 14 million people."
+
+turns:
+  - role: user
+    content: "What is the population of Tokyo? Try primary_lookup first, but use fallback_lookup if it fails."
+
+grade:
+  - type: tool_called
+    tool: fallback_lookup
+  - type: response_contains
+    value: "14 million"
+  - type: response_not_contains
+    value: "I can't"
+  - type: max_tool_iterations
+    max_value: 6
