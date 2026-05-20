@@ -14,7 +14,7 @@ setup:
         a: { type: number, description: "First number", required: true }
         b: { type: number, description: "Second number", required: true }
       script: |
-        def handle(args):
+        def run(args):
           return str(int(args["a"]) + int(args["b"]))
 
 turns:

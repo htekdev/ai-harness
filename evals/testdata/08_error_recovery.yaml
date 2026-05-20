@@ -16,7 +16,7 @@ setup:
       parameters:
         query: { type: string, description: "Search query", required: true }
       script: |
-        def handle(args):
+        def run(args):
           return "The population of Tokyo is approximately 14 million."
       error_on_call: 1
     - name: fallback_lookup
@@ -24,7 +24,7 @@ setup:
       parameters:
         query: { type: string, description: "Search query", required: true }
       script: |
-        def handle(args):
+        def run(args):
           return "The population of Tokyo is approximately 14 million people."
 
 turns:

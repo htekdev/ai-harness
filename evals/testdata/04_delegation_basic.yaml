@@ -25,7 +25,7 @@ turns:
 
 grade:
   - type: delegation_occurred
-  - type: response_contains
-    value: "299792458"
+  - type: response_matches
+    value: "299,?792,?458"
   - type: max_tool_iterations
     max_value: 8

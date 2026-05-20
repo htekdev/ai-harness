@@ -14,7 +14,7 @@ setup:
         key: { type: string, description: "Note key", required: true }
         value: { type: string, description: "Note content", required: true }
       script: |
-        def handle(args):
+        def run(args):
           return "Stored: " + args["key"] + " = " + args["value"]
 
 turns:
