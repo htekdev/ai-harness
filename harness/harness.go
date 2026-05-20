@@ -331,13 +331,20 @@ func buildAgentResolver(agents map[string]*config.AgentConfig) delegation.AgentR
 
 		var hooks []delegation.HookSpec
 		for _, h := range agentCfg.Hooks {
-			hooks = append(hooks, delegation.HookSpec{
-				Event:    h.Event,
-				Handler:  h.Handler,
-				Script:   h.Script,
-				When:     h.When,
-				Priority: h.Priority,
-			})
+			if h.Ref != "" {
+				// String reference — look up from loaded hooks
+				hooks = append(hooks, delegation.HookSpec{
+					Handler: h.Ref,
+				})
+			} else if h.Inline != nil {
+				hooks = append(hooks, delegation.HookSpec{
+					Event:    h.Inline.Event,
+					Handler:  h.Inline.Handler,
+					Script:   h.Inline.Script,
+					When:     h.Inline.When,
+					Priority: h.Inline.Priority,
+				})
+			}
 		}
 
 		return &delegation.ResolvedAgent{

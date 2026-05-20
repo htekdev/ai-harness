@@ -189,7 +189,7 @@ type AgentConfig struct {
 	Model        string       `yaml:"model" json:"model"`
 	SystemPrompt string       `yaml:"-" json:"-"` // from markdown body
 	Tools        []AgentTool  `yaml:"tools" json:"tools"`
-	Hooks        []HookConfig `yaml:"hooks" json:"hooks"`
+	Hooks        []AgentHook  `yaml:"hooks" json:"hooks"`
 }
 
 // AgentTool can be either a string (reference) or an inline ToolConfig.
@@ -218,6 +218,32 @@ func (at *AgentTool) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
+// AgentHook can be either a string (reference) or an inline HookConfig.
+type AgentHook struct {
+	// Ref is a reference to a hook by name (loaded from .harness/hooks/).
+	Ref string
+	// Inline is a full inline hook definition.
+	Inline *HookConfig
+}
+
+// UnmarshalYAML handles both string references and inline hook objects.
+func (ah *AgentHook) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try string first
+	var ref string
+	if err := unmarshal(&ref); err == nil {
+		ah.Ref = ref
+		return nil
+	}
+
+	// Try inline hook config
+	var hc HookConfig
+	if err := unmarshal(&hc); err != nil {
+		return fmt.Errorf("agent hook must be a string reference or inline hook config: %w", err)
+	}
+	ah.Inline = &hc
+	return nil
+}
+
 // ParseAgentMarkdown parses an agent .md file. The filename is the agent name,
 // frontmatter has model/tools/hooks, body is the system prompt.
 func ParseAgentMarkdown(data []byte, name string) (*AgentConfig, error) {
@@ -227,10 +253,10 @@ func ParseAgentMarkdown(data []byte, name string) (*AgentConfig, error) {
 	}
 
 	type agentFrontmatter struct {
-		Description string       `yaml:"description"`
-		Model       string       `yaml:"model"`
-		Tools       []AgentTool  `yaml:"tools"`
-		Hooks       []HookConfig `yaml:"hooks"`
+		Description string      `yaml:"description"`
+		Model       string      `yaml:"model"`
+		Tools       []AgentTool `yaml:"tools"`
+		Hooks       []AgentHook `yaml:"hooks"`
 	}
 
 	var fm agentFrontmatter
