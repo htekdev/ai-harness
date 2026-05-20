@@ -215,3 +215,177 @@ def handle(event, payload):
 		t.Fatalf("expected when condition to skip hook, got %+v", allowed)
 	}
 }
+
+func TestEngine_Base64AndCryptoBuiltins(t *testing.T) {
+	engine := NewEngine()
+	runner, err := engine.CompileToolScript("encoding_tool", `
+def run(args):
+    encoded = base64.encode("hello webhook")
+    decoded = base64.decode(encoded)
+    signature = crypto.hmac_sha256("top-secret", encoded)
+    return decoded + "|" + encoded + "|" + signature
+`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	result, err := runner.Run(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if want := "hello webhook|aGVsbG8gd2ViaG9vaw==|9533b9fe167775d43e3c6727a3d0327ab49e3d905fe03ec9ba23642cb6fcd9bf"; result != want {
+		t.Fatalf("got %q, want %q", result, want)
+	}
+}
+
+func TestEngine_StringBuiltins(t *testing.T) {
+	engine := NewEngine()
+	runner, err := engine.CompileToolScript("string_tool", `
+def run(args):
+    parts = string.split("  alpha,beta,gamma  ", ",")
+    return json.encode({
+        "upper": string.upper("go"),
+        "lower": string.lower("AI"),
+        "trim": string.trim("  spaced  "),
+        "join": string.join(parts, "|"),
+        "truncate": string.truncate("truncate-me", 8),
+        "left": string.pad_left("7", 3, "0"),
+        "right": string.pad_right("7", 3, "0"),
+    })
+`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	result, err := runner.Run(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if payload["upper"] != "GO" || payload["lower"] != "ai" || payload["trim"] != "spaced" {
+		t.Fatalf("unexpected case/trim payload: %+v", payload)
+	}
+	if payload["join"] != "  alpha|beta|gamma  " || payload["truncate"] != "truncate" {
+		t.Fatalf("unexpected split/join payload: %+v", payload)
+	}
+	if payload["left"] != "007" || payload["right"] != "700" {
+		t.Fatalf("unexpected padding payload: %+v", payload)
+	}
+}
+
+func TestEngine_MetricsBuiltinsPersistAcrossRuns(t *testing.T) {
+	engine := NewEngine()
+	runner, err := engine.CompileToolScript("metrics_tool", `
+def run(args):
+    current = metrics.incr("packets")
+    metrics.incr("bytes", 5)
+    snapshot = metrics.snapshot()
+    return json.encode({
+        "packets": current,
+        "bytes": metrics.get("bytes"),
+        "snapshot": snapshot,
+    })
+`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	first, err := runner.Run(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	second, err := runner.Run(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(first), &payload); err != nil {
+		t.Fatalf("decode first: %v", err)
+	}
+	if payload["packets"].(float64) != 1 || payload["bytes"].(float64) != 5 {
+		t.Fatalf("unexpected first payload: %+v", payload)
+	}
+	if err := json.Unmarshal([]byte(second), &payload); err != nil {
+		t.Fatalf("decode second: %v", err)
+	}
+	if payload["packets"].(float64) != 2 || payload["bytes"].(float64) != 10 {
+		t.Fatalf("unexpected second payload: %+v", payload)
+	}
+
+	resetRunner, err := engine.CompileToolScript("metrics_reset_tool", `
+def run(args):
+    metrics.reset("bytes")
+    metrics.reset()
+    return str(metrics.get("packets")) + "|" + str(metrics.get("bytes"))
+`)
+	if err != nil {
+		t.Fatalf("compile reset: %v", err)
+	}
+	resetResult, err := resetRunner.Run(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("reset run: %v", err)
+	}
+	if resetResult != "0|0" {
+		t.Fatalf("unexpected reset result: %q", resetResult)
+	}
+}
+
+func TestEngine_EmitCustomEventBuiltin(t *testing.T) {
+	system := hooks.NewSystem()
+	system.Register(hooks.Registration{
+		Name:  "custom-audit",
+		Event: hooks.Event("custom.audit"),
+		Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
+			data := payload.(map[string]any)
+			data["seen"] = true
+			data["count"] = 3
+			return hooks.Result{Action: hooks.ActionModify, Payload: data}
+		},
+	})
+
+	engine := NewEngine()
+	runner, err := engine.CompileToolScript("emit_tool", `
+def run(args):
+    payload = emit("custom.audit", {"kind": string.upper(args["kind"])})
+    return json.encode(payload)
+`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	ctx := hooks.WithDispatcher(context.Background(), system)
+	result, err := runner.Run(ctx, json.RawMessage(`{"kind":"webhook"}`))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if payload["kind"] != "WEBHOOK" || payload["seen"] != true || payload["count"].(float64) != 3 {
+		t.Fatalf("unexpected custom event payload: %+v", payload)
+	}
+}
+
+func TestEngine_EmitBuiltinRejectsNonCustomEvents(t *testing.T) {
+	engine := NewEngine()
+	runner, err := engine.CompileToolScript("emit_bad_tool", `
+def run(args):
+    emit("tool.pre", {"name": "oops"})
+    return "ok"
+`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	_, err = runner.Run(context.Background(), json.RawMessage(`{}`))
+	if err == nil || !strings.Contains(err.Error(), hooks.CustomEventPrefix) {
+		t.Fatalf("expected custom event prefix error, got %v", err)
+	}
+}

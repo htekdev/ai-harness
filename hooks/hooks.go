@@ -6,6 +6,7 @@ package hooks
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -24,6 +25,8 @@ const (
 	EventDelegatePre    Event = "delegate.pre"
 	EventDelegatePost   Event = "delegate.post"
 )
+
+const CustomEventPrefix = "custom."
 
 // Action determines what happens after a hook executes.
 type Action int
@@ -92,7 +95,35 @@ func IsValidEvent(event string) bool {
 			return true
 		}
 	}
-	return false
+	return IsCustomEvent(event)
+}
+
+// IsCustomEvent reports whether the event is a user-defined custom event.
+func IsCustomEvent(event string) bool {
+	event = strings.TrimSpace(event)
+	return strings.HasPrefix(event, CustomEventPrefix) && len(event) > len(CustomEventPrefix)
+}
+
+type dispatcherContextKey struct{}
+
+// WithDispatcher stores the hook system on a context so scripts can emit custom events.
+func WithDispatcher(ctx context.Context, system *System) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if system == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, dispatcherContextKey{}, system)
+}
+
+// DispatcherFromContext returns the hook system associated with the context, if any.
+func DispatcherFromContext(ctx context.Context) *System {
+	if ctx == nil {
+		return nil
+	}
+	system, _ := ctx.Value(dispatcherContextKey{}).(*System)
+	return system
 }
 
 // Register adds a hook handler for the given event.
@@ -134,6 +165,8 @@ func (s *System) Unregister(name string, event Event) bool {
 // Returns the final result. If any handler blocks, dispatch stops immediately.
 // If a handler modifies the payload, subsequent handlers see the modified version.
 func (s *System) Dispatch(ctx context.Context, event Event, payload any) Result {
+	ctx = WithDispatcher(ctx, s)
+
 	s.mu.RLock()
 	handlers := make([]Registration, len(s.handlers[event]))
 	copy(handlers, s.handlers[event])

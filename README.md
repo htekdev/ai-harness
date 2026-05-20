@@ -149,6 +149,8 @@ go run ./cmd/example/
 
 That's it. Tools execute Starlark inline. Hooks govern every lifecycle event. No Go code required for tool logic.
 
+Custom hooks may subscribe to any `custom.*` event name, which lets tools and hooks create their own internal event bus with `emit("custom.your_event", payload)`.
+
 ### Starlark scripting engine
 
 All tools and hooks can be implemented entirely in Starlark (a Python-like language) embedded in the YAML. No Go code needed for tool logic.
@@ -166,8 +168,10 @@ All tools and hooks can be implemented entirely in Starlark (a Python-like langu
 | **Network** | `http.get(url, headers?, timeout_seconds?)`, `http.post(url, body?, headers?, timeout_seconds?)` |
 | **Regex** | `re.match(pattern, text)`, `re.find_all(pattern, text)`, `re.replace(pattern, repl, text)` |
 | **Hashing** | `hash.sha256(text)`, `hash.md5(text)` |
-| **State** | `cache.set/get/has/delete/clear` |
-| **I/O** | `env(key)`, `log(msg)` |
+| **Encoding / crypto** | `base64.encode(s)`, `base64.decode(s)`, `crypto.hmac_sha256(key, msg)` |
+| **Strings** | `string.upper/lower/trim/split/join/truncate/pad_left/pad_right` |
+| **State** | `cache.set/get/has/delete/clear`, `metrics.incr/get/reset/snapshot` |
+| **I/O** | `env(key)`, `log(msg)`, `emit("custom.event", payload)` |
 | **File read** | `fs.read(path)`, `fs.exists(path)`, `fs.list(path)`, `fs.stat(path)`, `fs.line_count(path)`, `fs.find(path, pattern)`, `fs.read_lines(path, start, end)` |
 | **File write** | `fs.write(path, content)`, `fs.append(path, content)`, `fs.mkdir(path)`, `fs.remove(path)` |
 | **File edit** | `fs.replace(path, old, new)`, `fs.replace_all(path, old, new)`, `fs.insert_at(path, line, content)`, `fs.replace_lines(path, start, end, content)`, `fs.delete_lines(path, start, end)` |
@@ -196,6 +200,7 @@ The `delegate` meta-tool lets the agent create sub-agents with custom tools at r
 - Task context auto-injected when tools have no declared parameters
 - `delegate.pre` / `delegate.post` hooks can block or rewrite delegation requests and results
 - Hooks can declare `when:` expressions to fire only for matching payloads (for example, only on specific tools)
+- Scripts can `emit("custom.*", payload)` and let other hooks observe or rewrite domain-specific events
 
 ### Lower-level API
 

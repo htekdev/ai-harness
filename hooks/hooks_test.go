@@ -199,3 +199,20 @@ func TestValidEventsIncludesDelegateHooks(t *testing.T) {
 		t.Fatalf("delegate events should be valid: %v", ValidEvents())
 	}
 }
+
+func TestCustomEventsAreValid(t *testing.T) {
+	if !IsValidEvent("custom.audit") {
+		t.Fatal("custom events should be valid")
+	}
+	if IsValidEvent("custom.") {
+		t.Fatal("custom event prefix alone should be invalid")
+	}
+}
+
+func TestWithDispatcherStoresSystem(t *testing.T) {
+	system := NewSystem()
+	ctx := WithDispatcher(context.Background(), system)
+	if DispatcherFromContext(ctx) != system {
+		t.Fatal("expected dispatcher to round-trip through context")
+	}
+}

@@ -208,7 +208,8 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 
 			// Execute the tool
 			a.logger.Printf("executing tool: %s (call_id: %s)", call.Name, call.ID)
-			toolResult := a.tools.Execute(ctx, call)
+			execCtx := hooks.WithDispatcher(ctx, a.hooks)
+			toolResult := a.tools.Execute(execCtx, call)
 
 			// Fire tool.post hook
 			postResult := a.hooks.Dispatch(ctx, hooks.EventToolPost, &toolResult)

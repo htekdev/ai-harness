@@ -37,7 +37,12 @@ context:
     - http.post(url, body?, headers?, timeout_seconds?) — make HTTP POST requests
     - re.match(pattern, text), re.find_all(pattern, text), re.replace(pattern, repl, text)
     - hash.sha256(text), hash.md5(text) — checksum helpers
+    - base64.encode(s), base64.decode(s) — binary-safe text encoding
+    - crypto.hmac_sha256(key, msg) — signature generation for webhooks and API auth
+    - string.upper/lower/trim/split/join/truncate/pad_left/pad_right — string shaping helpers
     - cache.set/get/has/delete/clear — shared in-memory state across scripts
+    - metrics.incr/get/reset/snapshot — counters shared across tools and hooks
+    - emit("custom.event", payload) — fire custom events and receive the final payload
     - fs.read(path) — read file contents
     - fs.write(path, content) — write file (creates dirs)
     - fs.append(path, content) — append to file
@@ -55,7 +60,7 @@ context:
     - fs.line_count(path) — number of lines in file
     - fs.find(path, pattern) — find lines containing pattern
     - For hooks: allow(), block(reason), modify(payload)
-    - Hook events: session.start/end, turn.start/end, tool.pre/post, completion.pre/post, delegate.pre/post
+    - Hook events: session.start/end, turn.start/end, tool.pre/post, completion.pre/post, delegate.pre/post, and custom.* events
     - Hooks can also declare a `when:` Starlark expression for conditional execution
     
     Starlark is Python-like but has NO imports. Use only the built-ins above.
@@ -523,6 +528,59 @@ tools:
           sleep(int(args.get("delay_ms", 250)))
           return "[" + uuid.v4() + "] " + args["message"]
 
+  - name: webhook_packet
+    description: Build a signed webhook packet using base64, crypto, string helpers, metrics, and custom events
+    parameters:
+      tenant:
+        type: string
+        description: Tenant or integration name
+        required: true
+      message:
+        type: string
+        description: Message to embed in the packet
+        required: true
+    script: |
+      def run(args):
+          tenant = string.upper(string.trim(args["tenant"]))
+          body = {
+              "tenant": tenant,
+              "message": string.truncate(string.trim(args["message"]), 80),
+              "sequence": metrics.incr("webhook_packet.sequence"),
+          }
+          encoded = base64.encode(json.encode(body))
+          signature = crypto.hmac_sha256(tenant, encoded)
+          audit = emit("custom.audit.packet", {
+              "tenant": tenant,
+              "signature": signature,
+              "size": len(encoded),
+          })
+          return json.encode({
+              "payload": encoded,
+              "signature": signature,
+              "audit": audit,
+          })
+
+  - name: decode_webhook_packet
+    description: Decode a base64 webhook packet and normalize the embedded message
+    parameters:
+      payload:
+        type: string
+        description: Base64-encoded JSON payload
+        required: true
+    script: |
+      def run(args):
+          decoded = json.decode(base64.decode(args["payload"]))
+          decoded["message"] = string.trim(decoded.get("message", ""))
+          decoded["tenant_slug"] = string.lower(decoded.get("tenant", ""))
+          return json.encode(decoded)
+
+  - name: metrics_report
+    description: Inspect in-memory script metrics collected by tools and hooks
+    parameters: {}
+    script: |
+      def run(args):
+          return json.encode(metrics.snapshot())
+
 hooks:
   - event: tool.pre
     handler: audit_log
@@ -570,6 +628,16 @@ hooks:
       def handle(event, payload):
           log("write audit [" + uuid.v4() + "] " + payload["name"] + " on " + os.platform())
           return allow()
+
+  - event: custom.audit.packet
+    handler: packet_audit
+    priority: 20
+    script: |
+      def handle(event, payload):
+          payload["audit_count"] = metrics.incr("custom.audit.packet")
+          payload["tenant_slug"] = string.lower(payload.get("tenant", ""))
+          payload["signature_preview"] = string.truncate(payload.get("signature", ""), 12)
+          return modify(payload)
 
   - event: delegate.post
     handler: delegate_audit
