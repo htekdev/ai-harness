@@ -24,6 +24,7 @@ context:
 tools:
   - name: read_file
     description: Read a file
+    timeout_ms: 250
     parameters:
       path:
         type: string
@@ -57,6 +58,9 @@ hooks:
 	}
 	if len(cfg.Tools) != 1 || cfg.Tools[0].Name != "read_file" {
 		t.Fatalf("unexpected tools: %+v", cfg.Tools)
+	}
+	if cfg.Tools[0].TimeoutMS != 250 {
+		t.Fatalf("expected timeout_ms 250, got %d", cfg.Tools[0].TimeoutMS)
 	}
 	if len(cfg.Hooks) != 1 {
 		t.Fatalf("expected 1 hook, got %d", len(cfg.Hooks))
@@ -165,7 +169,7 @@ func TestValidate(t *testing.T) {
 func TestValidateFailures(t *testing.T) {
 	cfg := &Config{
 		Model: ModelConfig{Name: "", MaxTokens: 0, Temperature: 3},
-		Tools: []ToolConfig{{Name: "dup"}, {Name: "dup"}, {Name: "   "}},
+		Tools: []ToolConfig{{Name: "dup", TimeoutMS: -1}, {Name: "dup"}, {Name: "   "}},
 		Hooks: []HookConfig{{Event: "not-real", Handler: "noop"}},
 	}
 
@@ -173,7 +177,7 @@ func TestValidateFailures(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
-	for _, want := range []string{"model.name cannot be empty", "model.temperature must be between 0 and 2", "model.max_tokens must be greater than 0", "tool \"dup\" is defined more than once", "name cannot be empty", "hooks[0].event \"not-real\" is invalid"} {
+	for _, want := range []string{"model.name cannot be empty", "model.temperature must be between 0 and 2", "model.max_tokens must be greater than 0", "tool \"dup\" timeout_ms must be >= 0", "tool \"dup\" is defined more than once", "name cannot be empty", "hooks[0].event \"not-real\" is invalid"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("expected %q in error, got %v", want, err)
 		}

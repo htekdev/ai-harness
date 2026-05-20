@@ -29,6 +29,7 @@ context:
     - log(msg) — emit log message
     - random(min, max) — random integer in range [min, max]
     - sleep(ms) — pause execution for polling and rate-limited APIs
+    - assert(condition, msg?) — fail-fast validation inside scripts
     - math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x)
     - os.cwd(), os.hostname(), os.platform(), os.args() — runtime/process information
     - url.parse(s), url.encode(params) — URL parsing and query construction
@@ -42,6 +43,7 @@ context:
     - string.upper/lower/trim/split/join/truncate/pad_left/pad_right — string shaping helpers
     - cache.set/get/has/delete/clear — shared in-memory state across scripts
     - metrics.incr/get/reset/snapshot — counters shared across tools and hooks
+    - ctx.set/get/has/delete/clear/snapshot — turn-scoped state shared across hooks and tools
     - emit("custom.event", payload) — fire custom events and receive the final payload
     - fs.read(path) — read file contents
     - fs.write(path, content) — write file (creates dirs)
@@ -51,6 +53,7 @@ context:
     - fs.mkdir(path) — create directory (recursive)
     - fs.list(path) — list directory entries
     - fs.stat(path) — file info (name, size, is_dir, mode, mod_time)
+    - fs.glob(pattern) — recursively match files using glob patterns
     - fs.replace(path, old, new) — surgical find-and-replace (must be unique match)
     - fs.replace_all(path, old, new) — replace all occurrences
     - fs.read_lines(path, start, end) — read line range (1-indexed, numbered)
@@ -59,7 +62,9 @@ context:
     - fs.delete_lines(path, start, end) — delete line range
     - fs.line_count(path) — number of lines in file
     - fs.find(path, pattern) — find lines containing pattern
+    - exec.run(cmd, args?, timeout_ms?, dir?) — run a sandboxed command without a shell
     - For hooks: allow(), block(reason), modify(payload)
+    - Tools may declare timeout_ms in YAML to auto-cancel long-running scripts
     - Hook events: session.start/end, turn.start/end, tool.pre/post, completion.pre/post, delegate.pre/post, and custom.* events
     - Hooks can also declare a `when:` Starlark expression for conditional execution
     
@@ -581,7 +586,59 @@ tools:
       def run(args):
           return json.encode(metrics.snapshot())
 
+  - name: extensibility_demo
+    description: Demonstrate recursive globbing, sandboxed exec, assertions, turn state, and YAML tool timeouts
+    timeout_ms: 2500
+    parameters:
+      pattern:
+        type: string
+        description: Glob pattern to search within the workspace
+        required: true
+      cmd:
+        type: string
+        description: Executable to run without a shell
+        required: true
+      arg:
+        type: string
+        description: Optional single argument to pass to the executable
+        required: false
+      command_timeout_ms:
+        type: number
+        description: Optional command timeout in milliseconds
+        required: false
+    script: |
+      def run(args):
+          matches = fs.glob(args["pattern"])
+          assert(len(matches) > 0, "no files matched: " + args["pattern"])
+          state = ctx.get("demo_state", {"hook_tool": "missing"})
+          command_args = []
+          arg = string.trim(args.get("arg", ""))
+          if arg != "":
+              command_args = [arg]
+          command = exec.run(args["cmd"], command_args, int(args.get("command_timeout_ms", 1000)))
+          assert(command["ok"], "command failed: " + command["stderr"])
+          stdout = string.trim(command["stdout"])
+          ctx.set("demo_state", {
+              "hook_tool": state.get("hook_tool", ""),
+              "match_count": len(matches),
+              "last_stdout": stdout,
+          })
+          return json.encode({
+              "hook_tool": state.get("hook_tool", ""),
+              "matches": len(matches),
+              "first_match": matches[0],
+              "stdout": stdout,
+          })
+
 hooks:
+  - event: tool.pre
+    handler: demo_turn_state
+    when: payload.get("name", "") == "extensibility_demo"
+    script: |
+      def handle(event, payload):
+          ctx.set("demo_state", {"hook_tool": payload["name"]})
+          return allow()
+
   - event: tool.pre
     handler: audit_log
     script: |

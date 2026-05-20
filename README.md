@@ -164,18 +164,20 @@ All tools and hooks can be implemented entirely in Starlark (a Python-like langu
 | **Math** | `math.abs`, `math.min`, `math.max`, `math.floor`, `math.ceil` |
 | **Runtime** | `os.cwd()`, `os.hostname()`, `os.platform()`, `os.args()` |
 | **URL / IDs** | `url.parse(s)`, `url.encode(params)`, `uuid.v4()` |
-| **Flow control** | `random(min, max)`, `sleep(ms)` |
+| **Flow control** | `random(min, max)`, `sleep(ms)`, `assert(condition, msg?)` |
 | **Network** | `http.get(url, headers?, timeout_seconds?)`, `http.post(url, body?, headers?, timeout_seconds?)` |
 | **Regex** | `re.match(pattern, text)`, `re.find_all(pattern, text)`, `re.replace(pattern, repl, text)` |
 | **Hashing** | `hash.sha256(text)`, `hash.md5(text)` |
 | **Encoding / crypto** | `base64.encode(s)`, `base64.decode(s)`, `crypto.hmac_sha256(key, msg)` |
 | **Strings** | `string.upper/lower/trim/split/join/truncate/pad_left/pad_right` |
-| **State** | `cache.set/get/has/delete/clear`, `metrics.incr/get/reset/snapshot` |
-| **I/O** | `env(key)`, `log(msg)`, `emit("custom.event", payload)` |
-| **File read** | `fs.read(path)`, `fs.exists(path)`, `fs.list(path)`, `fs.stat(path)`, `fs.line_count(path)`, `fs.find(path, pattern)`, `fs.read_lines(path, start, end)` |
+| **State** | `cache.set/get/has/delete/clear`, `metrics.incr/get/reset/snapshot`, `ctx.set/get/has/delete/clear/snapshot` |
+| **I/O** | `env(key)`, `log(msg)`, `emit("custom.event", payload)`, `exec.run(cmd, args?, timeout_ms?, dir?)` |
+| **File read** | `fs.read(path)`, `fs.exists(path)`, `fs.list(path)`, `fs.stat(path)`, `fs.glob(pattern)`, `fs.line_count(path)`, `fs.find(path, pattern)`, `fs.read_lines(path, start, end)` |
 | **File write** | `fs.write(path, content)`, `fs.append(path, content)`, `fs.mkdir(path)`, `fs.remove(path)` |
 | **File edit** | `fs.replace(path, old, new)`, `fs.replace_all(path, old, new)`, `fs.insert_at(path, line, content)`, `fs.replace_lines(path, start, end, content)`, `fs.delete_lines(path, start, end)` |
 | **Hooks** | `allow()`, `block(reason)`, `modify(payload)` |
+
+Tool definitions may also declare `timeout_ms` in YAML so the harness automatically cancels long-running scripts.
 
 ### Self-extending delegation
 

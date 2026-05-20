@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/htekdev/ai-harness/config"
@@ -67,6 +68,14 @@ func testConfig() *config.Config {
 			},
 		}},
 		Hooks: []config.HookConfig{{Event: string(hooks.EventSessionStart), Handler: "session_hook"}},
+	}
+}
+
+func scriptedToolConfig(name, script string) config.ToolConfig {
+	return config.ToolConfig{
+		Name:        name,
+		Description: name,
+		Script:      script,
 	}
 }
 
@@ -237,6 +246,69 @@ def handle(event, payload):
 	}
 	if len(result.ToolResults) != 1 || result.ToolResults[0].Content != "hooked" {
 		t.Fatalf("unexpected tool results: %+v", result.ToolResults)
+	}
+}
+
+func TestHarnessToolTimeoutFromConfig(t *testing.T) {
+	setTestEnv(t, "AI_HARNESS_TEST_KEY", "secret")
+	cfg := testConfig()
+	cfg.Tools = []config.ToolConfig{scriptedToolConfig("slow", `
+def run(args):
+    sleep(200)
+    return "done"
+`)}
+	cfg.Tools[0].TimeoutMS = 25
+	cfg.Model.BaseURL = httptestServer(t, []string{
+		`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"slow","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+		`{"choices":[{"message":{"role":"assistant","content":"handled"},"finish_reason":"stop"}]}`,
+	})
+
+	h, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result, err := h.Run(context.Background(), "run slow tool")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ToolResults) != 1 || !result.ToolResults[0].IsError || !strings.Contains(result.ToolResults[0].Content, context.DeadlineExceeded.Error()) {
+		t.Fatalf("expected timeout error result, got %+v", result.ToolResults)
+	}
+}
+
+func TestHarnessTurnStateSharedBetweenHookAndTool(t *testing.T) {
+	setTestEnv(t, "AI_HARNESS_TEST_KEY", "secret")
+	cfg := testConfig()
+	cfg.Tools = []config.ToolConfig{scriptedToolConfig("stateful", `
+def run(args):
+    return ctx.get("active_tool", "missing")
+`)}
+	cfg.Model.BaseURL = httptestServer(t, []string{
+		`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"stateful","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+		`{"choices":[{"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}`,
+	})
+	cfg.Hooks = []config.HookConfig{{
+		Event:   string(hooks.EventToolPre),
+		Handler: "remember_tool",
+		Script: `
+def handle(event, payload):
+    ctx.set("active_tool", payload["name"])
+    return allow()
+`,
+	}}
+
+	h, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result, err := h.Run(context.Background(), "run stateful tool")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ToolResults) != 1 || result.ToolResults[0].Content != "stateful" {
+		t.Fatalf("expected hook state to reach tool, got %+v", result.ToolResults)
 	}
 }
 

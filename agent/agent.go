@@ -12,6 +12,7 @@ import (
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
 	"github.com/htekdev/ai-harness/hooks"
+	"github.com/htekdev/ai-harness/scripting"
 	"github.com/htekdev/ai-harness/tools"
 )
 
@@ -95,8 +96,10 @@ func applyHookPayload(payload any, target any) error {
 // Run executes a single turn: takes user input, runs the agent loop until
 // the model produces a final response (no more tool calls).
 func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error) {
+	turnCtx := hooks.WithDispatcher(scripting.WithTurnState(ctx), a.hooks)
+
 	// Fire turn.start hook
-	hookResult := a.hooks.Dispatch(ctx, hooks.EventTurnStart, userMessage)
+	hookResult := a.hooks.Dispatch(turnCtx, hooks.EventTurnStart, userMessage)
 	if hookResult.Action == hooks.ActionBlock {
 		return nil, fmt.Errorf("turn blocked: %s", hookResult.Reason)
 	}
@@ -123,7 +126,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 		}
 
 		// Fire completion.pre hook
-		hookResult = a.hooks.Dispatch(ctx, hooks.EventCompletionPre, &req)
+		hookResult = a.hooks.Dispatch(turnCtx, hooks.EventCompletionPre, &req)
 		if hookResult.Action == hooks.ActionBlock {
 			return nil, fmt.Errorf("completion blocked: %s", hookResult.Reason)
 		}
@@ -134,13 +137,13 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 		}
 
 		// Call the model
-		resp, err := a.client.Complete(ctx, req)
+		resp, err := a.client.Complete(turnCtx, req)
 		if err != nil {
 			return nil, fmt.Errorf("completion error: %w", err)
 		}
 
 		// Fire completion.post hook
-		hookResult = a.hooks.Dispatch(ctx, hooks.EventCompletionPost, resp)
+		hookResult = a.hooks.Dispatch(turnCtx, hooks.EventCompletionPost, resp)
 		if hookResult.Action == hooks.ActionBlock {
 			return nil, fmt.Errorf("completion blocked: %s", hookResult.Reason)
 		}
@@ -181,7 +184,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 			}
 
 			// Fire tool.pre hook
-			preResult := a.hooks.Dispatch(ctx, hooks.EventToolPre, &call)
+			preResult := a.hooks.Dispatch(turnCtx, hooks.EventToolPre, &call)
 			if preResult.Action == hooks.ActionBlock {
 				result.ToolCalls = append(result.ToolCalls, call)
 				// Tool was blocked — send error result back to model
@@ -208,11 +211,10 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 
 			// Execute the tool
 			a.logger.Printf("executing tool: %s (call_id: %s)", call.Name, call.ID)
-			execCtx := hooks.WithDispatcher(ctx, a.hooks)
-			toolResult := a.tools.Execute(execCtx, call)
+			toolResult := a.tools.Execute(turnCtx, call)
 
 			// Fire tool.post hook
-			postResult := a.hooks.Dispatch(ctx, hooks.EventToolPost, &toolResult)
+			postResult := a.hooks.Dispatch(turnCtx, hooks.EventToolPost, &toolResult)
 			if postResult.Action == hooks.ActionBlock {
 				toolResult.Content = fmt.Sprintf("tool result blocked: %s", postResult.Reason)
 				toolResult.IsError = true
@@ -239,7 +241,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 	}
 
 	// Fire turn.end hook
-	hookResult = a.hooks.Dispatch(ctx, hooks.EventTurnEnd, result)
+	hookResult = a.hooks.Dispatch(turnCtx, hooks.EventTurnEnd, result)
 	if hookResult.Action == hooks.ActionBlock {
 		return nil, fmt.Errorf("turn blocked: %s", hookResult.Reason)
 	}

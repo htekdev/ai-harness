@@ -41,6 +41,7 @@ type ToolConfig struct {
 	Name        string                 `yaml:"name" json:"name"`
 	Description string                 `yaml:"description" json:"description"`
 	Parameters  map[string]ParamConfig `yaml:"parameters" json:"parameters"`
+	TimeoutMS   int                    `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
 	Script      string                 `yaml:"script,omitempty" json:"script,omitempty"`
 }
 
@@ -147,6 +148,9 @@ func (c *Config) Validate() error {
 		if _, exists := seenTools[name]; exists {
 			issues = append(issues, fmt.Sprintf("tool %q is defined more than once", name))
 			continue
+		}
+		if tool.TimeoutMS < 0 {
+			issues = append(issues, fmt.Sprintf("tool %q timeout_ms must be >= 0", name))
 		}
 		seenTools[name] = struct{}{}
 	}

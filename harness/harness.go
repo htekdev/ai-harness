@@ -71,6 +71,9 @@ func NewFromConfig(cfg *config.Config) (*Harness, error) {
 		} else {
 			handler = unimplementedToolHandler(toolCfg.Name)
 		}
+		if toolCfg.TimeoutMS > 0 {
+			handler = tools.WithTimeout(handler, time.Duration(toolCfg.TimeoutMS)*time.Millisecond)
+		}
 
 		if err := registry.Register(def, handler); err != nil {
 			return nil, fmt.Errorf("register config tool %q: %w", toolCfg.Name, err)
