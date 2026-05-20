@@ -41,6 +41,9 @@ context:
     - base64.encode(s), base64.decode(s) — binary-safe text encoding
     - crypto.hmac_sha256(key, msg) — signature generation for webhooks and API auth
     - string.upper/lower/trim/split/join/truncate/pad_left/pad_right — string shaping helpers
+    - template.render(tmpl, vars) — render prompt and report templates with {{placeholders}}
+    - validate.email/url/json — validate user input before calling external systems
+    - set.new/contains/union/intersect/diff/values/size — dedupe and compare collections
     - cache.set/get/has/delete/clear — shared in-memory state across scripts
     - metrics.incr/get/reset/snapshot — counters shared across tools and hooks
     - ctx.set/get/has/delete/clear/snapshot — turn-scoped state shared across hooks and tools
@@ -54,6 +57,8 @@ context:
     - fs.list(path) — list directory entries
     - fs.stat(path) — file info (name, size, is_dir, mode, mod_time)
     - fs.glob(pattern) — recursively match files using glob patterns
+    - fs.copy(src, dst), fs.move(src, dst) — copy or relocate files/directories inside the workspace jail
+    - fs.diff(old_content, new_content, old_name?, new_name?) — generate unified diffs for previews
     - fs.replace(path, old, new) — surgical find-and-replace (must be unique match)
     - fs.replace_all(path, old, new) — replace all occurrences
     - fs.read_lines(path, start, end) — read line range (1-indexed, numbered)
@@ -628,6 +633,99 @@ tools:
               "matches": len(matches),
               "first_match": matches[0],
               "stdout": stdout,
+          })
+
+  - name: validate_contact_payload
+    description: Validate external input before using it in downstream workflows
+    parameters:
+      email:
+        type: string
+        description: Contact email address to validate
+        required: true
+      url:
+        type: string
+        description: Endpoint URL to validate
+        required: true
+      payload:
+        type: string
+        description: JSON payload string to validate
+        required: true
+    script: |
+      def run(args):
+          checks = {
+              "email": validate.email(args["email"]),
+              "url": validate.url(args["url"]),
+              "json": validate.json(args["payload"]),
+          }
+          checks["ok"] = checks["email"] and checks["url"] and checks["json"]
+          return json.encode(checks)
+
+  - name: render_task_brief
+    description: Render a task summary with deduplicated labels and nested placeholders
+    parameters:
+      title:
+        type: string
+        description: Task title
+        required: true
+      owner:
+        type: string
+        description: Task owner or team alias
+        required: true
+      priority:
+        type: string
+        description: Priority label to show in the brief
+        required: true
+      labels_csv:
+        type: string
+        description: Comma-separated labels to deduplicate and format
+        required: false
+    script: |
+      def run(args):
+          raw_labels = string.trim(args.get("labels_csv", ""))
+          labels = []
+          if raw_labels != "":
+              labels = string.split(raw_labels, ",")
+          labels = set.union(set.new(labels), ["owner:" + args["owner"], "priority:" + args["priority"]])
+          return template.render(
+              "Task: {{title}}\nOwner: {{owner}}\nPriority: {{meta.priority}}\nLabels: {{label_summary}}",
+              {
+                  "title": args["title"],
+                  "owner": args["owner"],
+                  "meta": {"priority": args["priority"]},
+                  "label_summary": string.join(set.values(labels), ", "),
+              },
+          )
+
+  - name: file_change_preview
+    description: Copy a workspace file to scratch space, preview a diff, then move the staged copy
+    parameters:
+      source_path:
+        type: string
+        description: File to preview without editing in place
+        required: true
+      scratch_dir:
+        type: string
+        description: Workspace-local scratch directory for staged copies
+        required: true
+      append_text:
+        type: string
+        description: Text to append in the staged preview
+        required: true
+    script: |
+      def run(args):
+          fs.mkdir(args["scratch_dir"])
+          staged = args["scratch_dir"] + "/preview.txt"
+          archived = args["scratch_dir"] + "/final.txt"
+          fs.copy(args["source_path"], staged)
+          original = fs.read(args["source_path"])
+          candidate = original + args["append_text"]
+          preview = fs.diff(original, candidate, args["source_path"], archived)
+          fs.write(staged, candidate)
+          fs.move(staged, archived)
+          return json.encode({
+              "archived_path": archived,
+              "archived_exists": fs.exists(archived),
+              "preview": string.truncate(preview, 400),
           })
 
 hooks:

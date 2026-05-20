@@ -104,6 +104,8 @@ func starlarkToGo(v starlark.Value) any {
 			result[fmt.Sprintf("%v", key)] = value
 		}
 		return result
+	case *scriptSet:
+		return val.toGoSlice()
 	case starlark.Tuple:
 		result := make([]any, len(val))
 		for i, item := range val {

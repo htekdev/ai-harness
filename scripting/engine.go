@@ -123,6 +123,10 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"pad_right": starlark.NewBuiltin("string.pad_right", builtinStringPadRight),
 	})
 
+	templateMod := templateModule()
+	validateMod := validateModule()
+	setMod := setModule()
+
 	cacheMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 		"set":    starlark.NewBuiltin("cache.set", e.builtinCacheSet),
 		"get":    starlark.NewBuiltin("cache.get", e.builtinCacheGet),
@@ -148,6 +152,9 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"list":          starlark.NewBuiltin("fs.list", builtinFsList),
 		"stat":          starlark.NewBuiltin("fs.stat", builtinFsStat),
 		"glob":          starlark.NewBuiltin("fs.glob", builtinFsGlob),
+		"copy":          starlark.NewBuiltin("fs.copy", builtinFsCopy),
+		"move":          starlark.NewBuiltin("fs.move", builtinFsMove),
+		"diff":          starlark.NewBuiltin("fs.diff", builtinFsDiff),
 		"replace":       starlark.NewBuiltin("fs.replace", builtinFsReplace),
 		"replace_all":   starlark.NewBuiltin("fs.replace_all", builtinFsReplaceAll),
 		"read_lines":    starlark.NewBuiltin("fs.read_lines", builtinFsReadLines),
@@ -159,32 +166,35 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 	})
 
 	return starlark.StringDict{
-		"time":    timeMod,
-		"json":    jsonMod,
-		"math":    mathMod,
-		"os":      osMod,
-		"url":     urlMod,
-		"uuid":    uuidMod,
-		"http":    httpMod,
-		"re":      reMod,
-		"hash":    hashMod,
-		"base64":  base64Mod,
-		"crypto":  cryptoMod,
-		"string":  stringMod,
-		"cache":   cacheMod,
-		"metrics": metricsMod,
-		"fs":      fsMod,
-		"ctx":     ctxModule(),
-		"exec":    execModule(),
-		"env":     starlark.NewBuiltin("env", builtinEnv),
-		"log":     starlark.NewBuiltin("log", builtinLog),
-		"assert":  starlark.NewBuiltin("assert", builtinAssert),
-		"allow":   starlark.NewBuiltin("allow", builtinContinue),
-		"block":   starlark.NewBuiltin("block", builtinBlock),
-		"modify":  starlark.NewBuiltin("modify", builtinModify),
-		"emit":    starlark.NewBuiltin("emit", builtinEmit),
-		"random":  starlark.NewBuiltin("random", builtinRandom),
-		"sleep":   starlark.NewBuiltin("sleep", builtinSleep),
+		"time":     timeMod,
+		"json":     jsonMod,
+		"math":     mathMod,
+		"os":       osMod,
+		"url":      urlMod,
+		"uuid":     uuidMod,
+		"http":     httpMod,
+		"re":       reMod,
+		"hash":     hashMod,
+		"base64":   base64Mod,
+		"crypto":   cryptoMod,
+		"string":   stringMod,
+		"template": templateMod,
+		"validate": validateMod,
+		"set":      setMod,
+		"cache":    cacheMod,
+		"metrics":  metricsMod,
+		"fs":       fsMod,
+		"ctx":      ctxModule(),
+		"exec":     execModule(),
+		"env":      starlark.NewBuiltin("env", builtinEnv),
+		"log":      starlark.NewBuiltin("log", builtinLog),
+		"assert":   starlark.NewBuiltin("assert", builtinAssert),
+		"allow":    starlark.NewBuiltin("allow", builtinContinue),
+		"block":    starlark.NewBuiltin("block", builtinBlock),
+		"modify":   starlark.NewBuiltin("modify", builtinModify),
+		"emit":     starlark.NewBuiltin("emit", builtinEmit),
+		"random":   starlark.NewBuiltin("random", builtinRandom),
+		"sleep":    starlark.NewBuiltin("sleep", builtinSleep),
 	}
 }
 
