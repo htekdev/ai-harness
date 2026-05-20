@@ -1,0 +1,6 @@
+model:
+  name: gpt-5-mini
+context:
+  max_history: 15
+meta:
+  max_tools: 10
