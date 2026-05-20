@@ -11,6 +11,9 @@ ai-harness
 *.out
 coverage.txt
 
+# Eval results (generated)
+evals/testdata/results.json
+
 # Vendor
 vendor/
 

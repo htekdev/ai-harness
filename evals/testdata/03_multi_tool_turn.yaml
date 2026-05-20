@@ -1,0 +1,41 @@
+name: "multi-tool-turn"
+description: "Agent uses multiple tools in a single turn to compose a result"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: "You are a helpful assistant with math tools. Use tools to compute results — never do mental math."
+  tools:
+    - name: multiply
+      description: "Multiply two numbers"
+      parameters:
+        a: { type: number, description: "First number", required: true }
+        b: { type: number, description: "Second number", required: true }
+      script: |
+        def handle(args):
+          return str(int(args["a"]) * int(args["b"]))
+    - name: add
+      description: "Add two numbers"
+      parameters:
+        a: { type: number, description: "First number", required: true }
+        b: { type: number, description: "Second number", required: true }
+      script: |
+        def handle(args):
+          return str(int(args["a"]) + int(args["b"]))
+
+turns:
+  - role: user
+    content: "Compute (7 * 8) + 5. Use the multiply tool first, then the add tool with the result."
+
+grade:
+  - type: tool_called
+    tool: multiply
+  - type: tool_called
+    tool: add
+  - type: response_contains
+    value: "61"
+  - type: max_tool_iterations
+    max_value: 5
+  - type: no_errors

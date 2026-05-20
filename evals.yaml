@@ -1,0 +1,9 @@
+# Eval suite config
+model: gpt-4o-mini
+api_key_env: GH_TOKEN
+parallelism: 3
+budget_cap_usd: 0.50
+default_timeout: 30s
+cases_dir: evals/testdata
+output_file: evals/testdata/results.json
+retry_on_fail: 1

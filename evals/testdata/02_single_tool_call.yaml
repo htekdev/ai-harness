@@ -1,0 +1,31 @@
+name: "single-tool-call"
+description: "Agent uses a Starlark tool to compute a result"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: "You are a helpful assistant with math tools. Always use the add tool when asked to add numbers."
+  tools:
+    - name: add
+      description: "Add two numbers together and return the sum"
+      parameters:
+        a: { type: number, description: "First number", required: true }
+        b: { type: number, description: "Second number", required: true }
+      script: |
+        def handle(args):
+          return str(int(args["a"]) + int(args["b"]))
+
+turns:
+  - role: user
+    content: "What is 137 + 849? Use the add tool."
+
+grade:
+  - type: tool_called
+    tool: add
+  - type: response_contains
+    value: "986"
+  - type: max_tool_iterations
+    max_value: 3
+  - type: no_errors

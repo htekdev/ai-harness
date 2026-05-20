@@ -1,0 +1,46 @@
+name: "self-extending"
+description: "Agent creates a tool on-the-fly via delegation and uses it"
+category: "self-healing"
+model: "gpt-4o-mini"
+max_tokens: 1000
+timeout: "60s"
+
+setup:
+  system_prompt: |
+    You are a self-extending AI agent. You don't have math tools built in,
+    but you can create them using delegation. Use the delegate tool to
+    spawn a sub-agent with any tools you need.
+    
+    When you need a capability you don't have, CREATE IT via delegation.
+    This is the core self-healing principle: adapt and extend yourself
+    rather than giving up.
+  delegation:
+    max_depth: 2
+    iterations_per_depth: [10, 5]
+
+turns:
+  - role: user
+    content: |
+      Compute the factorial of 5 (which is 120).
+      You don't have a factorial tool, so delegate to a sub-agent.
+      Give the sub-agent a 'factorial' tool whose script computes factorials:
+      
+      def handle(args):
+        n = int(args["n"])
+        result = 1
+        for i in range(1, n + 1):
+          result = result * i
+        return str(result)
+      
+      The tool needs parameter 'n' (number). Have the sub-agent compute factorial(5).
+
+grade:
+  - type: delegation_occurred
+  - type: response_contains
+    value: "120"
+  - type: response_not_contains
+    value: "I can't"
+  - type: response_not_contains
+    value: "I don't have"
+  - type: max_tool_iterations
+    max_value: 8

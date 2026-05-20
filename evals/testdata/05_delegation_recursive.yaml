@@ -1,0 +1,32 @@
+name: "delegation-recursive"
+description: "Sub-agent itself delegates to another sub-agent (depth 2)"
+category: "delegation"
+model: "gpt-4o-mini"
+max_tokens: 1000
+timeout: "60s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant that solves problems by delegation.
+    Use the delegate tool to create sub-agents. Sub-agents can also
+    delegate if needed. Solve the problem step by step through delegation.
+    
+    When delegating, define appropriate tools for the sub-agent and give
+    clear task instructions.
+  delegation:
+    max_depth: 3
+    iterations_per_depth: [10, 5, 3]
+
+turns:
+  - role: user
+    content: |
+      Delegate to a sub-agent that computes 5 * 3.
+      Give it a 'multiply' tool with parameters a and b whose script returns str(int(args["a"]) * int(args["b"])).
+      Tell it to use the multiply tool and report the answer.
+
+grade:
+  - type: delegation_occurred
+  - type: response_contains
+    value: "15"
+  - type: delegation_depth
+    max_value: 3
