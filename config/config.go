@@ -41,6 +41,7 @@ type ToolConfig struct {
 	Name        string                 `yaml:"name" json:"name"`
 	Description string                 `yaml:"description" json:"description"`
 	Parameters  map[string]ParamConfig `yaml:"parameters" json:"parameters"`
+	Script      string                 `yaml:"script,omitempty" json:"script,omitempty"`
 }
 
 // ParamConfig defines a tool parameter in configuration.
@@ -52,8 +53,10 @@ type ParamConfig struct {
 
 // HookConfig defines a hook registration in configuration.
 type HookConfig struct {
-	Event   string `yaml:"event" json:"event"`
-	Handler string `yaml:"handler" json:"handler"`
+	Event    string `yaml:"event" json:"event"`
+	Handler  string `yaml:"handler" json:"handler"`
+	Script   string `yaml:"script,omitempty" json:"script,omitempty"`
+	Priority int    `yaml:"priority,omitempty" json:"priority,omitempty"`
 }
 
 // Load reads and parses a YAML configuration file.

@@ -1,37 +1,57 @@
 # AI Harness
 
-A minimal, extensible AI agent harness in Go for building tool-using agents without committing to a large framework. It gives you a small set of composable packages for configuration, model I/O, tools, hooks, context management, and a high-level harness API.
+A minimal, extensible AI agent harness in Go that makes building **self-extending, governed agents** trivial. Define tools, hooks, and even entire sub-agents inline in YAML using embedded Starlark scripts — no external plugins, no subprocess protocols, no framework lock-in.
 
 ## Why this project exists
 
-Most agent frameworks are either too opinionated or too hard to govern. `ai-harness` aims for a smaller surface area:
+Most agent frameworks force a choice: either you get a rigid plugin system that's hard to customize, or you get raw LLM access with no guardrails. `ai-harness` takes a different approach:
 
-- **Minimal**: plain Go structs and interfaces
-- **Extensible**: register tools and hooks at runtime
-- **Configurable**: YAML-driven setup via `harness.yaml`
-- **Governable**: lifecycle hooks for audit, blocking, and modification
-- **Portable**: works with GitHub Copilot and OpenAI-compatible APIs
+**Everything is defined in YAML. Everything is governed by hooks. Agents can extend themselves at runtime.**
+
+- **Self-contained**: Tools, hooks, and governance rules are all defined inline in `harness.yaml` using Starlark scripts — no external files, no build steps
+- **Self-extending**: The built-in `delegate` meta-tool lets agents spin up sub-agents with custom tools on the fly when they lack a capability
+- **Governed by default**: Built-in retry guards, path traversal protection, secret detection, and hook-based lifecycle control prevent runaway behavior without relying on prompt engineering
+- **Minimal**: Plain Go interfaces — `tools.Handler` is just `func(ctx, args) (string, error)`
+- **Portable**: Works with GitHub Copilot, OpenAI, or any compatible API
+
+### Core philosophy
+
+> Make the right thing to do the easy thing to do.
+
+The harness enforces safety through architecture, not instructions:
+- `fs.replace` **fails** if the match isn't unique (forces surgical edits)
+- Delegates are capped at 5 tool iterations (fail fast, don't loop)
+- Retry guards auto-block tools after 2 consecutive errors
+- Path operations are jailed to the working directory at the Go level
+- Hooks run at every lifecycle point — blocking is a first-class action
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    AI Harness                         │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│  ┌──────────┐    ┌──────────┐    ┌──────────────┐  │
-│  │  Config  │───▶│  Agent   │───▶│  Completion  │  │
-│  │  (YAML)  │    │  Loop    │    │  Client      │  │
-│  └──────────┘    └────┬─────┘    └──────────────┘  │
-│                       │                              │
-│              ┌────────┼────────┐                    │
-│              ▼        ▼        ▼                    │
-│  ┌──────────────┐ ┌──────┐ ┌──────────┐           │
-│  │    Hook      │ │ Tool │ │ Context  │           │
-│  │   System     │ │ Reg  │ │ Manager  │           │
-│  └──────────────┘ └──────┘ └──────────┘           │
-│                                                      │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                        AI Harness                              │
+├───────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ┌──────────┐    ┌──────────┐    ┌──────────────┐           │
+│  │  Config  │───▶│  Agent   │───▶│  Completion  │           │
+│  │  (YAML)  │    │  Loop    │    │  Client      │           │
+│  └──────────┘    └────┬─────┘    └──────────────┘           │
+│                       │                                       │
+│       ┌───────────────┼───────────────┐                      │
+│       ▼               ▼               ▼                      │
+│  ┌──────────┐   ┌──────────┐   ┌──────────────┐            │
+│  │  Hook    │   │  Tool    │   │   Context    │            │
+│  │  System  │   │ Registry │   │   Manager    │            │
+│  └──────────┘   └────┬─────┘   └──────────────┘            │
+│                       │                                       │
+│       ┌───────────────┼───────────────┐                      │
+│       ▼               ▼               ▼                      │
+│  ┌──────────┐   ┌──────────┐   ┌──────────────┐            │
+│  │ Starlark │   │ Delegate │   │  fs/edit     │            │
+│  │ Engine   │   │  System  │   │  Built-ins   │            │
+│  └──────────┘   └──────────┘   └──────────────┘            │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ## Installation
@@ -43,67 +63,130 @@ go install github.com/htekdev/ai-harness/cmd/example@latest
 
 ## Quick start
 
-### High-level API (`harness` package)
+### 1. Define everything in YAML
+
+```yaml
+# harness.yaml
+model:
+  provider: copilot
+  name: gpt-4o
+  max_tokens: 4096
+  temperature: 0.7
+
+context:
+  system_prompt: "You are a helpful AI assistant."
+
+tools:
+  - name: greet
+    description: Greet someone by name
+    parameters:
+      name:
+        type: string
+        description: Name to greet
+        required: true
+    script: |
+      def run(args):
+          return "Hello, " + args["name"] + "!"
+
+  - name: read_file
+    description: Read a file
+    parameters:
+      path:
+        type: string
+        required: true
+    script: |
+      def run(args):
+          return fs.read(args["path"])
+
+  - name: edit_file
+    description: Find and replace in a file
+    parameters:
+      path:
+        type: string
+        required: true
+      old_str:
+        type: string
+        required: true
+      new_str:
+        type: string
+        required: true
+    script: |
+      def run(args):
+          return fs.replace(args["path"], args["old_str"], args["new_str"])
+
+hooks:
+  - event: tool.pre
+    handler: secret_guard
+    priority: 10
+    script: |
+      def handle(event, payload):
+          encoded = json.encode(payload)
+          if "password" in encoded or "secret" in encoded:
+              return block("potential secret detected")
+          return allow()
+```
+
+### 2. Run it
 
 ```go
 package main
 
-import (
-  "context"
-  "encoding/json"
-  "fmt"
-
-  "github.com/htekdev/ai-harness/harness"
-  "github.com/htekdev/ai-harness/hooks"
-  "github.com/htekdev/ai-harness/tools"
-)
+import "github.com/htekdev/ai-harness/harness"
 
 func main() {
-  h, err := harness.New("harness.yaml")
-  if err != nil {
-    panic(err)
-  }
-
-  err = h.RegisterTool(tools.Definition{
-    Name:        "echo",
-    Description: "Echo a message",
-    Parameters: []tools.Parameter{
-      {Name: "message", Type: tools.TypeString, Description: "Message to echo", Required: true},
-    },
-  }, func(ctx context.Context, args json.RawMessage) (string, error) {
-    var payload struct {
-      Message string `json:"message"`
+    h, err := harness.New("harness.yaml")
+    if err != nil {
+        panic(err)
     }
-    if err := json.Unmarshal(args, &payload); err != nil {
-      return "", err
-    }
-    return payload.Message, nil
-  })
-  if err != nil {
-    panic(err)
-  }
-
-  h.RegisterHook(hooks.Registration{
-    Name:  "audit_log",
-    Event: hooks.EventToolPre,
-    Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
-      return hooks.Result{Action: hooks.ActionContinue}
-    },
-  })
-
-  if err := h.RunSession(context.Background()); err != nil {
-    panic(err)
-  }
-  defer h.EndSession(context.Background())
-
-  result, err := h.Run(context.Background(), "Say hello and use the echo tool.")
-  if err != nil {
-    panic(err)
-  }
-
-  fmt.Println(result.Response)
+    h.Interactive() // starts the CLI loop
 }
 ```
+
+```bash
+export GITHUB_TOKEN=$(gh auth token)
+go run ./cmd/example/
+```
+
+That's it. Tools execute Starlark inline. Hooks govern every lifecycle event. No Go code required for tool logic.
+
+### Starlark scripting engine
+
+All tools and hooks can be implemented entirely in Starlark (a Python-like language) embedded in the YAML. No Go code needed for tool logic.
+
+**Available built-ins:**
+
+| Category | Functions |
+|----------|-----------|
+| **Time** | `time.now()` |
+| **JSON** | `json.encode(val)`, `json.decode(s)` |
+| **Math** | `math.abs`, `math.min`, `math.max`, `math.floor`, `math.ceil` |
+| **I/O** | `env(key)`, `log(msg)`, `random(min, max)` |
+| **File read** | `fs.read(path)`, `fs.exists(path)`, `fs.list(path)`, `fs.stat(path)`, `fs.line_count(path)`, `fs.find(path, pattern)`, `fs.read_lines(path, start, end)` |
+| **File write** | `fs.write(path, content)`, `fs.append(path, content)`, `fs.mkdir(path)`, `fs.remove(path)` |
+| **File edit** | `fs.replace(path, old, new)`, `fs.replace_all(path, old, new)`, `fs.insert_at(path, line, content)`, `fs.replace_lines(path, start, end, content)`, `fs.delete_lines(path, start, end)` |
+| **Hooks** | `allow()`, `block(reason)`, `modify(payload)` |
+
+### Self-extending delegation
+
+The `delegate` meta-tool lets the agent create sub-agents with custom tools at runtime:
+
+```yaml
+# The agent calls delegate automatically when it lacks a capability:
+# delegate({
+#   "task": "Count words in each .go file",
+#   "tools": [{
+#     "name": "count_words",
+#     "description": "Count words in a file",
+#     "script": "def run(args):\n    content = fs.read(args['path'])\n    return str(len(content.split()))"
+#   }]
+# })
+```
+
+**Delegation guardrails (harness-level, not prompting):**
+- Max 5 tool iterations per delegate (fail fast)
+- Built-in retry guard blocks tools after 2 consecutive errors
+- Delegates never get the parent's `delegate` tool (no recursion)
+- Task context auto-injected when tools have no declared parameters
 
 ### Lower-level API
 
@@ -163,8 +246,10 @@ Key methods:
 
 Notes:
 
-- Configured tools are pre-registered as definitions with an **unimplemented placeholder handler** until you supply a real handler.
-- Configured hooks are pre-registered by **name and event** with a placeholder handler until you replace them with `RegisterHook`.
+- Tools with a `script` field are fully functional immediately — no Go handler needed.
+- Tools without a `script` are registered with a placeholder handler until you supply one via `RegisterTool`.
+- Hooks with a `script` field are fully functional immediately.
+- The `delegate` meta-tool is auto-registered when using the harness package.
 
 ### `agent`
 The core turn loop. It sends messages to the model, executes requested tools, appends tool results, and continues until the model returns a final response.
@@ -368,6 +453,7 @@ hooks:
 | `name` | string | yes | Must be unique and non-empty |
 | `description` | string | no | Sent to the model |
 | `parameters` | map | no | Parameter definitions keyed by name |
+| `script` | string | no | Starlark script implementing `def run(args): ...` |
 
 #### `tools[].parameters.*`
 
@@ -382,7 +468,9 @@ hooks:
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `event` | string | yes | Must match a defined lifecycle event |
-| `handler` | string | yes | Symbolic handler name to register later |
+| `handler` | string | yes | Symbolic handler name |
+| `priority` | int | no | Lower numbers execute first (default: 100) |
+| `script` | string | no | Starlark script implementing `def handle(event, payload): ...` |
 
 ## Hook system
 
@@ -505,14 +593,16 @@ Current package coverage is designed to stay high across the core libraries, inc
 ```
 ai-harness/
 ├── agent/          # Agent loop orchestration
-├── cmd/example/    # Example CLI
+├── cmd/example/    # Example CLI (just calls harness.New + Interactive)
 ├── completion/     # OpenAI-compatible client, including streaming
 ├── config/         # YAML/JSON config and validation
 ├── context/        # Conversation history manager
-├── harness/        # High-level API
+├── delegation/     # Delegate meta-tool (sub-agent creation)
+├── harness/        # High-level API (wires everything together)
 ├── hooks/          # Lifecycle hook system
+├── scripting/      # Starlark engine + fs/edit built-ins
 ├── tools/          # Tool registry and execution
-├── harness.yaml    # Example configuration
+├── harness.yaml    # Example configuration with inline tools
 └── go.mod
 ```
 

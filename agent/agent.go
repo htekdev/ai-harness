@@ -14,16 +14,17 @@ import (
 	"github.com/htekdev/ai-harness/tools"
 )
 
-// MaxToolIterations is the maximum number of tool-call loops before forcing a stop.
-const MaxToolIterations = 20
+// DefaultMaxToolIterations is the default maximum number of tool-call loops before forcing a stop.
+const DefaultMaxToolIterations = 20
 
 // Agent is the core agent loop that orchestrates conversation turns.
 type Agent struct {
-	client  *completion.Client
-	tools   *tools.Registry
-	hooks   *hooks.System
-	context *agentctx.Manager
-	logger  *log.Logger
+	client            *completion.Client
+	tools             *tools.Registry
+	hooks             *hooks.System
+	context           *agentctx.Manager
+	logger            *log.Logger
+	maxToolIterations int
 }
 
 // Options configures the agent.
@@ -33,6 +34,9 @@ type Options struct {
 	Hooks   *hooks.System
 	Context *agentctx.Manager
 	Logger  *log.Logger
+	// MaxToolIterations overrides the default cap on tool-call loops per turn.
+	// 0 means use DefaultMaxToolIterations.
+	MaxToolIterations int
 }
 
 // New creates a new Agent with the given options.
@@ -46,13 +50,18 @@ func New(opts Options) *Agent {
 	if opts.Logger == nil {
 		opts.Logger = log.Default()
 	}
+	maxIter := opts.MaxToolIterations
+	if maxIter <= 0 {
+		maxIter = DefaultMaxToolIterations
+	}
 
 	return &Agent{
-		client:  opts.Client,
-		tools:   opts.Tools,
-		hooks:   opts.Hooks,
-		context: opts.Context,
-		logger:  opts.Logger,
+		client:            opts.Client,
+		tools:             opts.Tools,
+		hooks:             opts.Hooks,
+		context:           opts.Context,
+		logger:            opts.Logger,
+		maxToolIterations: maxIter,
 	}
 }
 
@@ -91,7 +100,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 	result := &TurnResult{}
 	completed := false
 
-	for iteration := 0; iteration < MaxToolIterations; iteration++ {
+	for iteration := 0; iteration < a.maxToolIterations; iteration++ {
 		// Build completion request
 		req := completion.Request{
 			Messages: a.context.Messages(),
@@ -180,7 +189,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 	}
 
 	if !completed {
-		return nil, fmt.Errorf("max tool iterations reached (%d)", MaxToolIterations)
+		return nil, fmt.Errorf("max tool iterations reached (%d)", a.maxToolIterations)
 	}
 
 	// Fire turn.end hook

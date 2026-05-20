@@ -27,6 +27,19 @@ type Parameter struct {
 	Type        ParameterType `json:"type"`
 	Description string        `json:"description"`
 	Required    bool          `json:"required"`
+	// Items defines the schema for array elements (required when Type is "array").
+	Items *ParameterSchema `json:"items,omitempty"`
+	// Properties defines nested properties for object types.
+	Properties map[string]*ParameterSchema `json:"properties,omitempty"`
+}
+
+// ParameterSchema is a JSON Schema subset for nested parameter definitions.
+type ParameterSchema struct {
+	Type        ParameterType              `json:"type"`
+	Description string                     `json:"description,omitempty"`
+	Properties  map[string]*ParameterSchema `json:"properties,omitempty"`
+	Items       *ParameterSchema           `json:"items,omitempty"`
+	Required    []string                   `json:"required,omitempty"`
 }
 
 // Definition describes a tool that can be registered and invoked.
@@ -175,10 +188,21 @@ func (r *Registry) ToOpenAIFormat() []map[string]any {
 		required := []string{}
 
 		for _, p := range reg.Definition.Parameters {
-			properties[p.Name] = map[string]any{
+			propSchema := map[string]any{
 				"type":        string(p.Type),
 				"description": p.Description,
 			}
+			if p.Items != nil {
+				propSchema["items"] = parameterSchemaToMap(p.Items)
+			}
+			if p.Properties != nil {
+				nested := make(map[string]any)
+				for k, v := range p.Properties {
+					nested[k] = parameterSchemaToMap(v)
+				}
+				propSchema["properties"] = nested
+			}
+			properties[p.Name] = propSchema
 			if p.Required {
 				required = append(required, p.Name)
 			}
@@ -199,4 +223,31 @@ func (r *Registry) ToOpenAIFormat() []map[string]any {
 		result = append(result, tool)
 	}
 	return result
+}
+
+// parameterSchemaToMap converts a ParameterSchema to a map for JSON serialization.
+func parameterSchemaToMap(s *ParameterSchema) map[string]any {
+	if s == nil {
+		return nil
+	}
+	m := map[string]any{
+		"type": string(s.Type),
+	}
+	if s.Description != "" {
+		m["description"] = s.Description
+	}
+	if s.Items != nil {
+		m["items"] = parameterSchemaToMap(s.Items)
+	}
+	if s.Properties != nil {
+		nested := make(map[string]any)
+		for k, v := range s.Properties {
+			nested[k] = parameterSchemaToMap(v)
+		}
+		m["properties"] = nested
+	}
+	if len(s.Required) > 0 {
+		m["required"] = s.Required
+	}
+	return m
 }

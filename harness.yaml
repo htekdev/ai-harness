@@ -15,12 +15,51 @@ context:
   system_prompt: |
     You are a helpful AI assistant powered by the AI Harness.
     You have access to tools and can help with a variety of tasks.
+
+    IMPORTANT: You must NEVER say "I can't do that" or "I don't have a tool for that."
+    If no existing tool can handle a request, you MUST use the `delegate` tool to create
+    the tools you need on the fly. The delegate tool lets you define custom Starlark tools
+    and spin up a sub-agent that has those tools. You are a self-extending agent —
+    if you lack a capability, build it.
+
+    Available Starlark built-ins for delegate scripts:
+    - time.now() — current ISO timestamp
+    - env(key) — read environment variable
+    - json.encode(val) / json.decode(s) — JSON helpers
+    - log(msg) — emit log message
+    - random(min, max) — random integer in range [min, max]
+    - math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x)
+    - fs.read(path) — read file contents
+    - fs.write(path, content) — write file (creates dirs)
+    - fs.append(path, content) — append to file
+    - fs.exists(path) — check if path exists (returns True/False)
+    - fs.remove(path) — delete a file
+    - fs.mkdir(path) — create directory (recursive)
+    - fs.list(path) — list directory entries
+    - fs.stat(path) — file info (name, size, is_dir, mode, mod_time)
+    - fs.replace(path, old, new) — surgical find-and-replace (must be unique match)
+    - fs.replace_all(path, old, new) — replace all occurrences
+    - fs.read_lines(path, start, end) — read line range (1-indexed, numbered)
+    - fs.insert_at(path, line, content) — insert before line number
+    - fs.replace_lines(path, start, end, content) — replace line range
+    - fs.delete_lines(path, start, end) — delete line range
+    - fs.line_count(path) — number of lines in file
+    - fs.find(path, pattern) — find lines containing pattern
+    - For hooks: allow(), block(reason), modify(payload)
+    
+    Starlark is Python-like but has NO imports. Use only the built-ins above.
+    Tool scripts must define: def run(args): ...
+    Hook scripts must define: def handle(event, payload): ...
+
     Be concise and helpful.
 
 tools:
   - name: current_time
     description: Get the current date and time
     parameters: {}
+    script: |
+      def run(args):
+          return time.now()
 
   - name: echo
     description: Echo back a message
@@ -29,6 +68,9 @@ tools:
         type: string
         description: Message to echo back
         required: true
+    script: |
+      def run(args):
+          return args["message"]
 
   - name: calculate
     description: Perform basic arithmetic
@@ -45,11 +87,322 @@ tools:
         type: number
         description: Second number
         required: true
+    script: |
+      def run(args):
+          op = args["operation"]
+          a = args["a"]
+          b = args["b"]
+          if op == "add":
+              return str(a + b)
+          elif op == "subtract":
+              return str(a - b)
+          elif op == "multiply":
+              return str(a * b)
+          elif op == "divide":
+              if b == 0:
+                  fail("division by zero")
+              return str(a / b)
+          fail("unknown operation: " + op)
+
+  - name: env_lookup
+    description: Look up an environment variable
+    parameters:
+      key:
+        type: string
+        description: Environment variable name
+        required: true
+    script: |
+      def run(args):
+          val = env(args["key"])
+          if val == "":
+              return "not set"
+          return val
+
+  - name: read_file
+    description: Read the contents of a file
+    parameters:
+      path:
+        type: string
+        description: Path to the file to read
+        required: true
+    script: |
+      def run(args):
+          return fs.read(args["path"])
+
+  - name: write_file
+    description: Write content to a file (creates parent directories)
+    parameters:
+      path:
+        type: string
+        description: Path to the file to write
+        required: true
+      content:
+        type: string
+        description: Content to write to the file
+        required: true
+    script: |
+      def run(args):
+          return fs.write(args["path"], args["content"])
+
+  - name: list_dir
+    description: List files and directories at a given path
+    parameters:
+      path:
+        type: string
+        description: Directory path to list
+        required: true
+    script: |
+      def run(args):
+          entries = fs.list(args["path"])
+          return json.encode(entries)
+
+  - name: file_info
+    description: Get file or directory metadata (size, type, modification time)
+    parameters:
+      path:
+        type: string
+        description: Path to get info about
+        required: true
+    script: |
+      def run(args):
+          info = fs.stat(args["path"])
+          return json.encode({
+              "name": info.name,
+              "size": info.size,
+              "is_dir": info.is_dir,
+              "mode": info.mode,
+              "mod_time": info.mod_time
+          })
+
+  - name: delete_file
+    description: Delete a file
+    parameters:
+      path:
+        type: string
+        description: Path to the file to delete
+        required: true
+    script: |
+      def run(args):
+          path = args["path"]
+          if not fs.exists(path):
+              return "error: file does not exist: " + path
+          return fs.remove(path)
+
+  - name: file_exists
+    description: Check if a file or directory exists
+    parameters:
+      path:
+        type: string
+        description: Path to check
+        required: true
+    script: |
+      def run(args):
+          if fs.exists(args["path"]):
+              return "true"
+          return "false"
+
+  - name: append_file
+    description: Append content to a file (creates if it doesn't exist)
+    parameters:
+      path:
+        type: string
+        description: Path to the file
+        required: true
+      content:
+        type: string
+        description: Content to append
+        required: true
+    script: |
+      def run(args):
+          return fs.append(args["path"], args["content"])
+
+  - name: mkdir
+    description: Create a directory (including parent directories)
+    parameters:
+      path:
+        type: string
+        description: Directory path to create
+        required: true
+    script: |
+      def run(args):
+          return fs.mkdir(args["path"])
+
+  - name: edit_file
+    description: "Find and replace an exact string in a file (must match exactly one occurrence)"
+    parameters:
+      path:
+        type: string
+        description: Path to the file to edit
+        required: true
+      old_str:
+        type: string
+        description: The exact string to find (must be unique in the file)
+        required: true
+      new_str:
+        type: string
+        description: The replacement string
+        required: true
+    script: |
+      def run(args):
+          return fs.replace(args["path"], args["old_str"], args["new_str"])
+
+  - name: edit_file_all
+    description: "Replace ALL occurrences of a string in a file"
+    parameters:
+      path:
+        type: string
+        description: Path to the file
+        required: true
+      old_str:
+        type: string
+        description: The string to find
+        required: true
+      new_str:
+        type: string
+        description: The replacement string
+        required: true
+    script: |
+      def run(args):
+          return fs.replace_all(args["path"], args["old_str"], args["new_str"])
+
+  - name: read_lines
+    description: "Read specific lines from a file (1-indexed, with line numbers shown)"
+    parameters:
+      path:
+        type: string
+        description: Path to the file
+        required: true
+      start:
+        type: number
+        description: Start line number (1-indexed)
+        required: true
+      end:
+        type: number
+        description: "End line number (inclusive, 0 or -1 for end of file)"
+        required: false
+    script: |
+      def run(args):
+          end = args.get("end", 0)
+          if end == None:
+              end = 0
+          return fs.read_lines(args["path"], int(args["start"]), int(end))
+
+  - name: insert_lines
+    description: "Insert content before a specific line number"
+    parameters:
+      path:
+        type: string
+        description: Path to the file
+        required: true
+      line:
+        type: number
+        description: Line number to insert before (1-indexed)
+        required: true
+      content:
+        type: string
+        description: Content to insert (can be multi-line)
+        required: true
+    script: |
+      def run(args):
+          return fs.insert_at(args["path"], int(args["line"]), args["content"])
+
+  - name: replace_lines
+    description: "Replace a range of lines with new content"
+    parameters:
+      path:
+        type: string
+        description: Path to the file
+        required: true
+      start:
+        type: number
+        description: Start line number (1-indexed, inclusive)
+        required: true
+      end:
+        type: number
+        description: End line number (1-indexed, inclusive)
+        required: true
+      content:
+        type: string
+        description: Replacement content (can be multi-line, empty to delete)
+        required: true
+    script: |
+      def run(args):
+          return fs.replace_lines(args["path"], int(args["start"]), int(args["end"]), args["content"])
+
+  - name: delete_lines
+    description: "Delete a range of lines from a file"
+    parameters:
+      path:
+        type: string
+        description: Path to the file
+        required: true
+      start:
+        type: number
+        description: Start line number (1-indexed, inclusive)
+        required: true
+      end:
+        type: number
+        description: End line number (1-indexed, inclusive)
+        required: true
+    script: |
+      def run(args):
+          return fs.delete_lines(args["path"], int(args["start"]), int(args["end"]))
+
+  - name: find_in_file
+    description: "Find all lines in a file containing a pattern"
+    parameters:
+      path:
+        type: string
+        description: Path to the file
+        required: true
+      pattern:
+        type: string
+        description: Text pattern to search for
+        required: true
+    script: |
+      def run(args):
+          matches = fs.find(args["path"], args["pattern"])
+          results = []
+          for m in matches:
+              results.append(str(m.line_num) + ": " + m.text)
+          return "\n".join(results)
+
+  - name: line_count
+    description: "Get the number of lines in a file"
+    parameters:
+      path:
+        type: string
+        description: Path to the file
+        required: true
+    script: |
+      def run(args):
+          return str(fs.line_count(args["path"]))
 
 hooks:
   - event: tool.pre
     handler: audit_log
-  - event: session.start
-    handler: session_log
-  - event: session.end
-    handler: session_end_log
+    script: |
+      def handle(event, payload):
+          log("tool call: " + json.encode(payload))
+          return allow()
+
+  - event: tool.pre
+    handler: secret_guard
+    priority: 10
+    script: |
+      def handle(event, payload):
+          encoded = json.encode(payload)
+          if "password" in encoded or "secret" in encoded or "token" in encoded:
+              return block("potential secret detected in tool arguments")
+          return allow()
+
+  - event: tool.pre
+    handler: path_guard
+    priority: 5
+    script: |
+      def handle(event, payload):
+          # Block file operations with path traversal attempts
+          encoded = json.encode(payload)
+          if ".." in encoded and ("read_file" in encoded or "write_file" in encoded or "list_dir" in encoded or "file_info" in encoded):
+              return block("path traversal detected — '..' not allowed in file paths")
+          return allow()

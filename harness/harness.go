@@ -14,7 +14,9 @@ import (
 	"github.com/htekdev/ai-harness/completion"
 	"github.com/htekdev/ai-harness/config"
 	agentctx "github.com/htekdev/ai-harness/context"
+	"github.com/htekdev/ai-harness/delegation"
 	"github.com/htekdev/ai-harness/hooks"
+	"github.com/htekdev/ai-harness/scripting"
 	"github.com/htekdev/ai-harness/tools"
 )
 
@@ -25,6 +27,8 @@ type Harness struct {
 	registry   *tools.Registry
 	hookSystem *hooks.System
 	ctxMgr     *agentctx.Manager
+	engine     *scripting.Engine
+	delegator  *delegation.Delegator
 	agent      *agent.Agent
 }
 
@@ -51,21 +55,52 @@ func NewFromConfig(cfg *config.Config) (*Harness, error) {
 		return nil, fmt.Errorf("environment variable %q is not set", cfg.Model.APIKeyEnv)
 	}
 
+	engine := scripting.NewEngine()
 	registry := tools.NewRegistry()
+
 	for _, toolCfg := range cfg.Tools {
 		def := definitionFromConfig(toolCfg)
-		if err := registry.Register(def, unimplementedToolHandler(toolCfg.Name)); err != nil {
+		var handler tools.Handler
+
+		if toolCfg.Script != "" {
+			h, err := scripting.NewToolHandler(engine, toolCfg.Name, toolCfg.Script)
+			if err != nil {
+				return nil, fmt.Errorf("compile tool script %q: %w", toolCfg.Name, err)
+			}
+			handler = h
+		} else {
+			handler = unimplementedToolHandler(toolCfg.Name)
+		}
+
+		if err := registry.Register(def, handler); err != nil {
 			return nil, fmt.Errorf("register config tool %q: %w", toolCfg.Name, err)
 		}
 	}
 
 	hookSystem := hooks.NewSystem()
 	for _, hookCfg := range cfg.Hooks {
+		var handler hooks.Handler
+
+		if hookCfg.Script != "" {
+			h, err := scripting.NewHookHandler(engine, hookCfg.Handler, hookCfg.Script)
+			if err != nil {
+				return nil, fmt.Errorf("compile hook script %q: %w", hookCfg.Handler, err)
+			}
+			handler = h
+		} else {
+			handler = unimplementedHookHandler(hookCfg.Handler)
+		}
+
+		priority := hookCfg.Priority
+		if priority == 0 {
+			priority = 100
+		}
+
 		hookSystem.Register(hooks.Registration{
 			Name:     hookCfg.Handler,
 			Event:    hooks.Event(hookCfg.Event),
-			Priority: 100,
-			Handler:  unimplementedHookHandler(hookCfg.Handler),
+			Priority: priority,
+			Handler:  handler,
 		})
 	}
 
@@ -83,12 +118,28 @@ func NewFromConfig(cfg *config.Config) (*Harness, error) {
 		MaxTokens:    cfg.Context.MaxTokens,
 	})
 
+	// Create delegator for the built-in delegate meta-tool
+	delegator := delegation.NewDelegator(delegation.DelegatorConfig{
+		Client:       client,
+		Engine:       engine,
+		SystemPrompt: cfg.Context.SystemPrompt,
+		Logger:       log.New(os.Stderr, "[delegate] ", log.LstdFlags),
+	})
+
+	// Register the delegate meta-tool
+	delegateDef := delegation.DelegateToolDefinition()
+	if err := registry.Register(delegateDef, delegator.CreateDelegateToolHandler()); err != nil {
+		return nil, fmt.Errorf("register delegate tool: %w", err)
+	}
+
 	h := &Harness{
 		cfg:        cfg,
 		client:     client,
 		registry:   registry,
 		hookSystem: hookSystem,
 		ctxMgr:     ctxMgr,
+		engine:     engine,
+		delegator:  delegator,
 	}
 	if h.cfg == nil {
 		h.cfg = &config.Config{}
