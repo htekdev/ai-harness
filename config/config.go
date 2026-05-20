@@ -19,6 +19,16 @@ type Config struct {
 	Tools      []ToolConfig     `yaml:"tools" json:"tools"`
 	Hooks      []HookConfig     `yaml:"hooks" json:"hooks"`
 	Delegation DelegationConfig `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+	Meta       *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
+}
+
+// MetaBuiltinConfig configures the meta.* Starlark built-ins.
+type MetaBuiltinConfig struct {
+	Enabled      bool `yaml:"enabled" json:"enabled"`
+	MaxTools     int  `yaml:"max_tools" json:"max_tools"`
+	MaxHooks     int  `yaml:"max_hooks" json:"max_hooks"`
+	MaxAgents    int  `yaml:"max_agents" json:"max_agents"`
+	MaxCallDepth int  `yaml:"max_call_depth" json:"max_call_depth"`
 }
 
 // DelegationConfig defines delegation behavior.

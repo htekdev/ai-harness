@@ -216,6 +216,28 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 		h.cfg = &config.Config{}
 	}
 
+	// Wire meta built-ins into the scripting engine.
+	// This gives Starlark scripts runtime access to the tool registry, hook system, and agent configs.
+	metaCfg := scripting.DefaultMetaConfig()
+	if cfg.Meta != nil {
+		metaCfg = scripting.MetaConfig{
+			Enabled:      cfg.Meta.Enabled,
+			MaxTools:     cfg.Meta.MaxTools,
+			MaxHooks:     cfg.Meta.MaxHooks,
+			MaxAgents:    cfg.Meta.MaxAgents,
+			MaxCallDepth: cfg.Meta.MaxCallDepth,
+		}
+	}
+	if metaCfg.Enabled {
+		engine.SetMetaContext(&scripting.MetaContext{
+			Registry:   registry,
+			HookSystem: hookSystem,
+			Agents:     agents,
+			Engine:     engine,
+			Config:     metaCfg,
+		})
+	}
+
 	h.agent = agent.New(agent.Options{
 		Client:  client,
 		Tools:   registry,

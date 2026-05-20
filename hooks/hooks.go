@@ -28,6 +28,9 @@ const (
 
 const CustomEventPrefix = "custom."
 
+// MetaEventPrefix is the prefix for meta built-in events.
+const MetaEventPrefix = "meta."
+
 // Action determines what happens after a hook executes.
 type Action int
 
@@ -101,7 +104,13 @@ func IsValidEvent(event string) bool {
 // IsCustomEvent reports whether the event is a user-defined custom event.
 func IsCustomEvent(event string) bool {
 	event = strings.TrimSpace(event)
-	return strings.HasPrefix(event, CustomEventPrefix) && len(event) > len(CustomEventPrefix)
+	if strings.HasPrefix(event, CustomEventPrefix) && len(event) > len(CustomEventPrefix) {
+		return true
+	}
+	if strings.HasPrefix(event, MetaEventPrefix) && len(event) > len(MetaEventPrefix) {
+		return true
+	}
+	return false
 }
 
 type dispatcherContextKey struct{}
