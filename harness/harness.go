@@ -122,6 +122,7 @@ func NewFromConfig(cfg *config.Config) (*Harness, error) {
 	delegator := delegation.NewDelegator(delegation.DelegatorConfig{
 		Client:       client,
 		Engine:       engine,
+		HookSystem:   hookSystem,
 		SystemPrompt: cfg.Context.SystemPrompt,
 		Logger:       log.New(os.Stderr, "[delegate] ", log.LstdFlags),
 	})

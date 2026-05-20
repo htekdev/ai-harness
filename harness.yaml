@@ -6,7 +6,7 @@ model:
   name: gpt-4o
   max_tokens: 4096
   temperature: 0.7
-  api_key_env: GITHUB_TOKEN
+  api_key_env: GH_TOKEN
   # base_url: https://api.githubcopilot.com  # Override if needed
 
 context:
@@ -29,6 +29,11 @@ context:
     - log(msg) — emit log message
     - random(min, max) — random integer in range [min, max]
     - math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x)
+    - http.get(url, headers?, timeout_seconds?) — make HTTP GET requests
+    - http.post(url, body?, headers?, timeout_seconds?) — make HTTP POST requests
+    - re.match(pattern, text), re.find_all(pattern, text), re.replace(pattern, repl, text)
+    - hash.sha256(text), hash.md5(text) — checksum helpers
+    - cache.set/get/has/delete/clear — shared in-memory state across scripts
     - fs.read(path) — read file contents
     - fs.write(path, content) — write file (creates dirs)
     - fs.append(path, content) — append to file
@@ -46,6 +51,7 @@ context:
     - fs.line_count(path) — number of lines in file
     - fs.find(path, pattern) — find lines containing pattern
     - For hooks: allow(), block(reason), modify(payload)
+    - Hook events: session.start/end, turn.start/end, tool.pre/post, completion.pre/post, delegate.pre/post
     
     Starlark is Python-like but has NO imports. Use only the built-ins above.
     Tool scripts must define: def run(args): ...
@@ -378,6 +384,87 @@ tools:
       def run(args):
           return str(fs.line_count(args["path"]))
 
+  - name: github_user_profile
+    description: Fetch a GitHub user profile via the GitHub API with response caching
+    parameters:
+      username:
+        type: string
+        description: GitHub username to fetch
+        required: true
+    script: |
+      def run(args):
+          username = args["username"]
+          cache_key = "github_user_profile:" + username
+          cached = cache.get(cache_key)
+          if cached != None:
+              return json.encode({
+                  "source": "cache",
+                  "profile": cached,
+              })
+
+          token = env("GH_TOKEN")
+          if token == "":
+              fail("GH_TOKEN is required for github_user_profile")
+
+          response = http.get(
+              "https://api.github.com/users/" + username,
+              headers = {
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          if not response["ok"]:
+              fail("GitHub API request failed with status " + str(response["status"]))
+
+          payload = json.decode(response["body"])
+          profile = {
+              "login": payload["login"],
+              "name": payload.get("name"),
+              "followers": payload["followers"],
+              "following": payload["following"],
+              "public_repos": payload["public_repos"],
+              "bio": payload.get("bio"),
+          }
+          cache.set(cache_key, profile)
+          return json.encode({
+              "source": "network",
+              "profile": profile,
+          })
+
+  - name: extract_issue_refs
+    description: Extract GitHub issue references like #123 from free-form text
+    parameters:
+      text:
+        type: string
+        description: Text to scan for issue references
+        required: true
+    script: |
+      def run(args):
+          refs = re.find_all("#[0-9]+", args["text"])
+          return json.encode(refs)
+
+  - name: file_checksum
+    description: Compute an md5 or sha256 checksum for a file
+    parameters:
+      path:
+        type: string
+        description: File to checksum
+        required: true
+      algorithm:
+        type: string
+        description: "Checksum algorithm: sha256 or md5"
+        required: false
+    script: |
+      def run(args):
+          algorithm = args.get("algorithm", "sha256")
+          content = fs.read(args["path"])
+          if algorithm == "sha256":
+              return hash.sha256(content)
+          if algorithm == "md5":
+              return hash.md5(content)
+          fail("unsupported checksum algorithm: " + algorithm)
+
 hooks:
   - event: tool.pre
     handler: audit_log
@@ -405,4 +492,22 @@ hooks:
           encoded = json.encode(payload)
           if ".." in encoded and ("read_file" in encoded or "write_file" in encoded or "list_dir" in encoded or "file_info" in encoded):
               return block("path traversal detected — '..' not allowed in file paths")
+          return allow()
+
+  - event: delegate.pre
+    handler: delegate_guard
+    priority: 5
+    script: |
+      def handle(event, payload):
+          if payload.get("task", "") == "":
+              return block("delegation task cannot be empty")
+          if len(payload.get("tools", [])) > 4:
+              return block("delegation request is too large — keep delegate toolsets focused")
+          return allow()
+
+  - event: delegate.post
+    handler: delegate_audit
+    script: |
+      def handle(event, payload):
+          log("delegate result: " + json.encode(payload))
           return allow()

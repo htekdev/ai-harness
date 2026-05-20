@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
@@ -77,6 +78,20 @@ type TurnResult struct {
 	Usage completion.Usage
 }
 
+func applyHookPayload(payload any, target any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	rv := reflect.ValueOf(target)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return fmt.Errorf("target must be a non-nil pointer")
+	}
+	rv.Elem().Set(reflect.Zero(rv.Elem().Type()))
+	return json.Unmarshal(data, target)
+}
+
 // Run executes a single turn: takes user input, runs the agent loop until
 // the model produces a final response (no more tool calls).
 func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error) {
@@ -112,6 +127,11 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 		if hookResult.Action == hooks.ActionBlock {
 			return nil, fmt.Errorf("completion blocked: %s", hookResult.Reason)
 		}
+		if hookResult.Action == hooks.ActionModify {
+			if err := applyHookPayload(hookResult.Payload, &req); err != nil {
+				return nil, fmt.Errorf("completion.pre modify payload: %w", err)
+			}
+		}
 
 		// Call the model
 		resp, err := a.client.Complete(ctx, req)
@@ -120,7 +140,15 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 		}
 
 		// Fire completion.post hook
-		a.hooks.Dispatch(ctx, hooks.EventCompletionPost, resp)
+		hookResult = a.hooks.Dispatch(ctx, hooks.EventCompletionPost, resp)
+		if hookResult.Action == hooks.ActionBlock {
+			return nil, fmt.Errorf("completion blocked: %s", hookResult.Reason)
+		}
+		if hookResult.Action == hooks.ActionModify {
+			if err := applyHookPayload(hookResult.Payload, resp); err != nil {
+				return nil, fmt.Errorf("completion.post modify payload: %w", err)
+			}
+		}
 
 		// Aggregate usage
 		result.Usage.PromptTokens += resp.Usage.PromptTokens
@@ -151,11 +179,11 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 				Name:      tc.Function.Name,
 				Arguments: json.RawMessage(tc.Function.Arguments),
 			}
-			result.ToolCalls = append(result.ToolCalls, call)
 
 			// Fire tool.pre hook
 			preResult := a.hooks.Dispatch(ctx, hooks.EventToolPre, &call)
 			if preResult.Action == hooks.ActionBlock {
+				result.ToolCalls = append(result.ToolCalls, call)
 				// Tool was blocked — send error result back to model
 				toolResult := tools.Result{
 					CallID:  call.ID,
@@ -170,14 +198,31 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 				})
 				continue
 			}
+			if preResult.Action == hooks.ActionModify {
+				if err := applyHookPayload(preResult.Payload, &call); err != nil {
+					return nil, fmt.Errorf("tool.pre modify payload: %w", err)
+				}
+			}
+
+			result.ToolCalls = append(result.ToolCalls, call)
 
 			// Execute the tool
 			a.logger.Printf("executing tool: %s (call_id: %s)", call.Name, call.ID)
 			toolResult := a.tools.Execute(ctx, call)
-			result.ToolResults = append(result.ToolResults, toolResult)
 
 			// Fire tool.post hook
-			a.hooks.Dispatch(ctx, hooks.EventToolPost, &toolResult)
+			postResult := a.hooks.Dispatch(ctx, hooks.EventToolPost, &toolResult)
+			if postResult.Action == hooks.ActionBlock {
+				toolResult.Content = fmt.Sprintf("tool result blocked: %s", postResult.Reason)
+				toolResult.IsError = true
+			}
+			if postResult.Action == hooks.ActionModify {
+				if err := applyHookPayload(postResult.Payload, &toolResult); err != nil {
+					return nil, fmt.Errorf("tool.post modify payload: %w", err)
+				}
+			}
+
+			result.ToolResults = append(result.ToolResults, toolResult)
 
 			// Add tool result to context
 			a.context.AddMessage(completion.Message{
@@ -193,7 +238,15 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 	}
 
 	// Fire turn.end hook
-	a.hooks.Dispatch(ctx, hooks.EventTurnEnd, result)
+	hookResult = a.hooks.Dispatch(ctx, hooks.EventTurnEnd, result)
+	if hookResult.Action == hooks.ActionBlock {
+		return nil, fmt.Errorf("turn blocked: %s", hookResult.Reason)
+	}
+	if hookResult.Action == hooks.ActionModify {
+		if err := applyHookPayload(hookResult.Payload, result); err != nil {
+			return nil, fmt.Errorf("turn.end modify payload: %w", err)
+		}
+	}
 
 	return result, nil
 }

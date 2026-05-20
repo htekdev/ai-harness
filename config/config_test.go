@@ -151,7 +151,7 @@ func TestValidate(t *testing.T) {
 	cfg := &Config{
 		Model: ModelConfig{Name: "gpt-4o", MaxTokens: 512, Temperature: 1},
 		Tools: []ToolConfig{{Name: "echo"}},
-		Hooks: []HookConfig{{Event: "tool.pre", Handler: "audit_log"}},
+		Hooks: []HookConfig{{Event: "tool.pre", Handler: "audit_log"}, {Event: "delegate.pre", Handler: "delegate_guard"}},
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

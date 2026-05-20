@@ -21,6 +21,8 @@ const (
 	EventToolPost       Event = "tool.post"
 	EventCompletionPre  Event = "completion.pre"
 	EventCompletionPost Event = "completion.post"
+	EventDelegatePre    Event = "delegate.pre"
+	EventDelegatePost   Event = "delegate.post"
 )
 
 // Action determines what happens after a hook executes.
@@ -65,6 +67,32 @@ func NewSystem() *System {
 	return &System{
 		handlers: make(map[Event][]Registration),
 	}
+}
+
+// ValidEvents returns the supported lifecycle events in registration order.
+func ValidEvents() []Event {
+	return []Event{
+		EventSessionStart,
+		EventSessionEnd,
+		EventTurnStart,
+		EventTurnEnd,
+		EventToolPre,
+		EventToolPost,
+		EventCompletionPre,
+		EventCompletionPost,
+		EventDelegatePre,
+		EventDelegatePost,
+	}
+}
+
+// IsValidEvent reports whether the provided event name is supported.
+func IsValidEvent(event string) bool {
+	for _, valid := range ValidEvents() {
+		if string(valid) == event {
+			return true
+		}
+	}
+	return false
 }
 
 // Register adds a hook handler for the given event.

@@ -193,3 +193,9 @@ func TestHandlersFor(t *testing.T) {
 		t.Fatalf("unexpected handler names: %s, %s", handlers[0].Name, handlers[1].Name)
 	}
 }
+
+func TestValidEventsIncludesDelegateHooks(t *testing.T) {
+	if !IsValidEvent(string(EventDelegatePre)) || !IsValidEvent(string(EventDelegatePost)) {
+		t.Fatalf("delegate events should be valid: %v", ValidEvents())
+	}
+}

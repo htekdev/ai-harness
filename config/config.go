@@ -150,18 +150,8 @@ func (c *Config) Validate() error {
 		seenTools[name] = struct{}{}
 	}
 
-	validEvents := map[string]struct{}{
-		string(hooks.EventSessionStart):   {},
-		string(hooks.EventSessionEnd):     {},
-		string(hooks.EventTurnStart):      {},
-		string(hooks.EventTurnEnd):        {},
-		string(hooks.EventToolPre):        {},
-		string(hooks.EventToolPost):       {},
-		string(hooks.EventCompletionPre):  {},
-		string(hooks.EventCompletionPost): {},
-	}
 	for i, hookCfg := range c.Hooks {
-		if _, ok := validEvents[hookCfg.Event]; !ok {
+		if !hooks.IsValidEvent(hookCfg.Event) {
 			issues = append(issues, fmt.Sprintf("hooks[%d].event %q is invalid", i, hookCfg.Event))
 		}
 	}

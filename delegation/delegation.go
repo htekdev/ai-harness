@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"sync"
 
 	"github.com/htekdev/ai-harness/agent"
@@ -30,10 +31,10 @@ const MaxToolRetries = 2
 
 // ToolSpec defines a tool to be created for a delegate agent.
 type ToolSpec struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]ParamSpec   `json:"parameters"`
-	Script      string                 `json:"script"`
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Parameters  map[string]ParamSpec `json:"parameters"`
+	Script      string               `json:"script"`
 }
 
 // ParamSpec defines a tool parameter.
@@ -61,8 +62,8 @@ type Request struct {
 
 // Result is the output of a delegation.
 type Result struct {
-	Response    string        `json:"response"`
-	ToolCalls   []tools.Call  `json:"tool_calls,omitempty"`
+	Response    string         `json:"response"`
+	ToolCalls   []tools.Call   `json:"tool_calls,omitempty"`
 	ToolResults []tools.Result `json:"tool_results,omitempty"`
 }
 
@@ -70,6 +71,7 @@ type Result struct {
 type Delegator struct {
 	client       *completion.Client
 	engine       *scripting.Engine
+	hookSystem   *hooks.System
 	systemPrompt string
 	logger       *log.Logger
 }
@@ -78,6 +80,7 @@ type Delegator struct {
 type DelegatorConfig struct {
 	Client       *completion.Client
 	Engine       *scripting.Engine
+	HookSystem   *hooks.System
 	SystemPrompt string
 	Logger       *log.Logger
 }
@@ -93,6 +96,7 @@ func NewDelegator(cfg DelegatorConfig) *Delegator {
 	return &Delegator{
 		client:       cfg.Client,
 		engine:       cfg.Engine,
+		hookSystem:   cfg.HookSystem,
 		systemPrompt: cfg.SystemPrompt,
 		logger:       cfg.Logger,
 	}
@@ -100,6 +104,18 @@ func NewDelegator(cfg DelegatorConfig) *Delegator {
 
 // Execute spins up a delegate agent with the specified tools and hooks, then runs the task.
 func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
+	if d.hookSystem != nil {
+		preResult := d.hookSystem.Dispatch(ctx, hooks.EventDelegatePre, &req)
+		if preResult.Action == hooks.ActionBlock {
+			return nil, fmt.Errorf("delegation blocked: %s", preResult.Reason)
+		}
+		if preResult.Action == hooks.ActionModify {
+			if err := applyHookPayload(preResult.Payload, &req); err != nil {
+				return nil, fmt.Errorf("delegate.pre modify payload: %w", err)
+			}
+		}
+	}
+
 	registry := tools.NewRegistry()
 	for _, toolSpec := range req.Tools {
 		// Auto-inject task context: if tool has no declared parameters,
@@ -208,11 +224,25 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
 		return nil, fmt.Errorf("delegate execution: %w", err)
 	}
 
-	return &Result{
+	result := &Result{
 		Response:    turnResult.Response,
 		ToolCalls:   turnResult.ToolCalls,
 		ToolResults: turnResult.ToolResults,
-	}, nil
+	}
+
+	if d.hookSystem != nil {
+		postResult := d.hookSystem.Dispatch(ctx, hooks.EventDelegatePost, result)
+		if postResult.Action == hooks.ActionBlock {
+			return nil, fmt.Errorf("delegation blocked: %s", postResult.Reason)
+		}
+		if postResult.Action == hooks.ActionModify {
+			if err := applyHookPayload(postResult.Payload, result); err != nil {
+				return nil, fmt.Errorf("delegate.post modify payload: %w", err)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // buildDelegateSystemPrompt creates a focused system prompt for the delegate
@@ -237,11 +267,25 @@ func (d *Delegator) buildDelegateSystemPrompt(req Request) string {
 	return prompt
 }
 
+func applyHookPayload(payload any, target any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	rv := reflect.ValueOf(target)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return fmt.Errorf("target must be a non-nil pointer")
+	}
+	rv.Elem().Set(reflect.Zero(rv.Elem().Type()))
+	return json.Unmarshal(data, target)
+}
+
 // retryGuardHook tracks tool errors and blocks repeated failures.
 type retryGuardHook struct {
 	mu           sync.Mutex
 	errorCounts  map[string]int // tool name → consecutive error count
-	lastCallName string        // tracks which tool is being called
+	lastCallName string         // tracks which tool is being called
 }
 
 func newRetryGuardHook() *retryGuardHook {
@@ -317,8 +361,8 @@ func DelegateToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name: "delegate",
 		Description: `Spin up a sub-agent with custom tools and hooks to handle a task.
-Available Starlark built-ins for scripts: time.now(), env(key), json.encode(val), json.decode(s), log(msg), random(min, max), str(val), math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x).
-Hook scripts also get: allow(), block(reason), modify(payload).
+Available Starlark built-ins for scripts: time.now(), env(key), json.encode(val), json.decode(s), log(msg), random(min, max), str(val), math.abs(x), math.min(a,b), math.max(a,b), math.floor(x), math.ceil(x), http.get(url, headers?, timeout_seconds?), http.post(url, body?, headers?, timeout_seconds?), re.match(pattern, text), re.find_all(pattern, text), re.replace(pattern, repl, text), hash.sha256(text), hash.md5(text), cache.set/get/has/delete/clear, and the fs module.
+Hook scripts also get: allow(), block(reason), modify(payload). Supported hook events include tool.pre/post, completion.pre/post, turn.start/end, session.start/end, and delegate.pre/post.
 Starlark is Python-like but has NO imports. Use only the built-ins listed above.`,
 		Parameters: []tools.Parameter{
 			{Name: "task", Type: tools.TypeString, Description: "What you want the delegate to accomplish", Required: true},

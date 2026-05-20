@@ -4,12 +4,18 @@ package scripting
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,11 +31,14 @@ import (
 type Engine struct {
 	mu       sync.Mutex
 	builtins starlark.StringDict
+
+	cacheMu sync.RWMutex
+	cache   map[string]any
 }
 
 // NewEngine creates a new scripting engine with built-in modules.
 func NewEngine() *Engine {
-	e := &Engine{}
+	e := &Engine{cache: make(map[string]any)}
 	e.builtins = e.makeBuiltins()
 	return e
 }
@@ -51,6 +60,30 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"max":   starlark.NewBuiltin("math.max", builtinMathMax),
 		"floor": starlark.NewBuiltin("math.floor", builtinMathFloor),
 		"ceil":  starlark.NewBuiltin("math.ceil", builtinMathCeil),
+	})
+
+	httpMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"get":  starlark.NewBuiltin("http.get", builtinHTTPGet),
+		"post": starlark.NewBuiltin("http.post", builtinHTTPPost),
+	})
+
+	reMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"match":    starlark.NewBuiltin("re.match", builtinRegexMatch),
+		"find_all": starlark.NewBuiltin("re.find_all", builtinRegexFindAll),
+		"replace":  starlark.NewBuiltin("re.replace", builtinRegexReplace),
+	})
+
+	hashMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"sha256": starlark.NewBuiltin("hash.sha256", builtinHashSHA256),
+		"md5":    starlark.NewBuiltin("hash.md5", builtinHashMD5),
+	})
+
+	cacheMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"set":    starlark.NewBuiltin("cache.set", e.builtinCacheSet),
+		"get":    starlark.NewBuiltin("cache.get", e.builtinCacheGet),
+		"has":    starlark.NewBuiltin("cache.has", e.builtinCacheHas),
+		"delete": starlark.NewBuiltin("cache.delete", e.builtinCacheDelete),
+		"clear":  starlark.NewBuiltin("cache.clear", e.builtinCacheClear),
 	})
 
 	fsMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
@@ -76,6 +109,10 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"time":   timeMod,
 		"json":   jsonMod,
 		"math":   mathMod,
+		"http":   httpMod,
+		"re":     reMod,
+		"hash":   hashMod,
+		"cache":  cacheMod,
 		"fs":     fsMod,
 		"env":    starlark.NewBuiltin("env", builtinEnv),
 		"log":    starlark.NewBuiltin("log", builtinLog),
@@ -207,10 +244,10 @@ type hookResultValue struct {
 }
 
 func (h *hookResultValue) String() string        { return fmt.Sprintf("HookResult(%d)", h.result.Action) }
-func (h *hookResultValue) Type() string           { return "HookResult" }
-func (h *hookResultValue) Freeze()                {}
-func (h *hookResultValue) Truth() starlark.Bool   { return starlark.True }
-func (h *hookResultValue) Hash() (uint32, error)  { return 0, fmt.Errorf("unhashable") }
+func (h *hookResultValue) Type() string          { return "HookResult" }
+func (h *hookResultValue) Freeze()               {}
+func (h *hookResultValue) Truth() starlark.Bool  { return starlark.True }
+func (h *hookResultValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable") }
 
 // --- Built-in functions ---
 
@@ -364,6 +401,251 @@ func builtinMathCeil(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tupl
 	return starlark.MakeInt64(int64(math.Ceil(float64(x)))), nil
 }
 
+func builtinHTTPGet(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var rawURL string
+	var headersVal starlark.Value = starlark.None
+	var timeoutSeconds int = 30
+	if err := starlark.UnpackArgs("http.get", args, kwargs, "url", &rawURL, "headers?", &headersVal, "timeout_seconds?", &timeoutSeconds); err != nil {
+		return nil, err
+	}
+	return doHTTPRequest("GET", rawURL, "", headersVal, timeoutSeconds)
+}
+
+func builtinHTTPPost(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var rawURL string
+	var body string
+	var headersVal starlark.Value = starlark.None
+	var timeoutSeconds int = 30
+	if err := starlark.UnpackArgs("http.post", args, kwargs, "url", &rawURL, "body?", &body, "headers?", &headersVal, "timeout_seconds?", &timeoutSeconds); err != nil {
+		return nil, err
+	}
+	return doHTTPRequest("POST", rawURL, body, headersVal, timeoutSeconds)
+}
+
+func doHTTPRequest(method, rawURL, body string, headersVal starlark.Value, timeoutSeconds int) (starlark.Value, error) {
+	headers, err := starlarkValueToStringMap(headersVal)
+	if err != nil {
+		return nil, fmt.Errorf("http.%s: %w", strings.ToLower(method), err)
+	}
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 30
+	}
+
+	req, err := http.NewRequest(method, rawURL, strings.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("http.%s: build request: %w", strings.ToLower(method), err)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	client := &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http.%s: %w", strings.ToLower(method), err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("http.%s: read response: %w", strings.ToLower(method), err)
+	}
+
+	responseHeaders := make(map[string]any, len(resp.Header))
+	for key, values := range resp.Header {
+		responseHeaders[key] = strings.Join(values, ", ")
+	}
+
+	return goToStarlark(map[string]any{
+		"status":  resp.StatusCode,
+		"ok":      resp.StatusCode >= 200 && resp.StatusCode < 300,
+		"url":     resp.Request.URL.String(),
+		"body":    string(respBody),
+		"headers": responseHeaders,
+	})
+}
+
+func builtinRegexMatch(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var pattern, text string
+	if err := starlark.UnpackArgs("re.match", args, kwargs, "pattern", &pattern, "text", &text); err != nil {
+		return nil, err
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("re.match: %w", err)
+	}
+	indices := re.FindStringSubmatchIndex(text)
+	if len(indices) == 0 || indices[0] != 0 {
+		return goToStarlark(map[string]any{
+			"matched":      false,
+			"full_match":   "",
+			"groups":       []any{},
+			"named_groups": map[string]any{},
+			"start":        -1,
+			"end":          -1,
+		})
+	}
+
+	groups := make([]any, 0, (len(indices)/2)-1)
+	namedGroups := make(map[string]any)
+	for i := 2; i < len(indices); i += 2 {
+		group := ""
+		if indices[i] >= 0 && indices[i+1] >= 0 {
+			group = text[indices[i]:indices[i+1]]
+		}
+		groups = append(groups, group)
+		if name := re.SubexpNames()[i/2]; name != "" {
+			namedGroups[name] = group
+		}
+	}
+
+	return goToStarlark(map[string]any{
+		"matched":      true,
+		"full_match":   text[indices[0]:indices[1]],
+		"groups":       groups,
+		"named_groups": namedGroups,
+		"start":        indices[0],
+		"end":          indices[1],
+	})
+}
+
+func builtinRegexFindAll(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var pattern, text string
+	if err := starlark.UnpackArgs("re.find_all", args, kwargs, "pattern", &pattern, "text", &text); err != nil {
+		return nil, err
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("re.find_all: %w", err)
+	}
+
+	matches := re.FindAllString(text, -1)
+	items := make([]any, len(matches))
+	for i, match := range matches {
+		items[i] = match
+	}
+	return goToStarlark(items)
+}
+
+func builtinRegexReplace(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var pattern, repl, text string
+	if err := starlark.UnpackArgs("re.replace", args, kwargs, "pattern", &pattern, "repl", &repl, "text", &text); err != nil {
+		return nil, err
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("re.replace: %w", err)
+	}
+	return starlark.String(re.ReplaceAllString(text, repl)), nil
+}
+
+func builtinHashSHA256(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var text string
+	if err := starlark.UnpackArgs("hash.sha256", args, kwargs, "text", &text); err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256([]byte(text))
+	return starlark.String(hex.EncodeToString(sum[:])), nil
+}
+
+func builtinHashMD5(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var text string
+	if err := starlark.UnpackArgs("hash.md5", args, kwargs, "text", &text); err != nil {
+		return nil, err
+	}
+	sum := md5.Sum([]byte(text))
+	return starlark.String(hex.EncodeToString(sum[:])), nil
+}
+
+func (e *Engine) builtinCacheSet(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var key string
+	var value starlark.Value
+	if err := starlark.UnpackArgs("cache.set", args, kwargs, "key", &key, "value", &value); err != nil {
+		return nil, err
+	}
+
+	e.cacheMu.Lock()
+	e.cache[key] = starlarkToGo(value)
+	e.cacheMu.Unlock()
+	return value, nil
+}
+
+func (e *Engine) builtinCacheGet(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var key string
+	defaultVal := starlark.Value(starlark.None)
+	if err := starlark.UnpackArgs("cache.get", args, kwargs, "key", &key, "default?", &defaultVal); err != nil {
+		return nil, err
+	}
+
+	e.cacheMu.RLock()
+	stored, ok := e.cache[key]
+	e.cacheMu.RUnlock()
+	if !ok {
+		return defaultVal, nil
+	}
+	return goToStarlark(stored)
+}
+
+func (e *Engine) builtinCacheHas(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var key string
+	if err := starlark.UnpackArgs("cache.has", args, kwargs, "key", &key); err != nil {
+		return nil, err
+	}
+
+	e.cacheMu.RLock()
+	_, ok := e.cache[key]
+	e.cacheMu.RUnlock()
+	return starlark.Bool(ok), nil
+}
+
+func (e *Engine) builtinCacheDelete(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var key string
+	if err := starlark.UnpackArgs("cache.delete", args, kwargs, "key", &key); err != nil {
+		return nil, err
+	}
+
+	e.cacheMu.Lock()
+	_, ok := e.cache[key]
+	delete(e.cache, key)
+	e.cacheMu.Unlock()
+	return starlark.Bool(ok), nil
+}
+
+func (e *Engine) builtinCacheClear(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := starlark.UnpackArgs("cache.clear", args, kwargs); err != nil {
+		return nil, err
+	}
+
+	e.cacheMu.Lock()
+	e.cache = make(map[string]any)
+	e.cacheMu.Unlock()
+	return starlark.None, nil
+}
+
+func starlarkValueToStringMap(val starlark.Value) (map[string]string, error) {
+	if val == nil || val == starlark.None {
+		return map[string]string{}, nil
+	}
+
+	dict, ok := val.(*starlark.Dict)
+	if !ok {
+		return nil, fmt.Errorf("expected dict for headers, got %s", val.Type())
+	}
+
+	result := make(map[string]string, dict.Len())
+	for _, item := range dict.Items() {
+		key, ok := item[0].(starlark.String)
+		if !ok {
+			return nil, fmt.Errorf("header keys must be strings")
+		}
+		result[string(key)] = starlarkToString(item[1])
+	}
+	return result, nil
+}
+
 // --- Filesystem built-ins ---
 
 func builtinFsRead(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -481,10 +763,10 @@ func builtinFsStat(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple,
 		return nil, fmt.Errorf("fs.stat: %w", err)
 	}
 	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"name":    starlark.String(info.Name()),
-		"size":    starlark.MakeInt64(info.Size()),
-		"is_dir":  starlark.Bool(info.IsDir()),
-		"mode":    starlark.String(info.Mode().String()),
+		"name":     starlark.String(info.Name()),
+		"size":     starlark.MakeInt64(info.Size()),
+		"is_dir":   starlark.Bool(info.IsDir()),
+		"mode":     starlark.String(info.Mode().String()),
 		"mod_time": starlark.String(info.ModTime().Format(time.RFC3339)),
 	}), nil
 }

@@ -143,7 +143,7 @@ func main() {
 ```
 
 ```bash
-export GITHUB_TOKEN=$(gh auth token)
+export GH_TOKEN=$(gh auth token)
 go run ./cmd/example/
 ```
 
@@ -160,6 +160,10 @@ All tools and hooks can be implemented entirely in Starlark (a Python-like langu
 | **Time** | `time.now()` |
 | **JSON** | `json.encode(val)`, `json.decode(s)` |
 | **Math** | `math.abs`, `math.min`, `math.max`, `math.floor`, `math.ceil` |
+| **Network** | `http.get(url, headers?, timeout_seconds?)`, `http.post(url, body?, headers?, timeout_seconds?)` |
+| **Regex** | `re.match(pattern, text)`, `re.find_all(pattern, text)`, `re.replace(pattern, repl, text)` |
+| **Hashing** | `hash.sha256(text)`, `hash.md5(text)` |
+| **State** | `cache.set/get/has/delete/clear` |
 | **I/O** | `env(key)`, `log(msg)`, `random(min, max)` |
 | **File read** | `fs.read(path)`, `fs.exists(path)`, `fs.list(path)`, `fs.stat(path)`, `fs.line_count(path)`, `fs.find(path, pattern)`, `fs.read_lines(path, start, end)` |
 | **File write** | `fs.write(path, content)`, `fs.append(path, content)`, `fs.mkdir(path)`, `fs.remove(path)` |
@@ -187,6 +191,7 @@ The `delegate` meta-tool lets the agent create sub-agents with custom tools at r
 - Built-in retry guard blocks tools after 2 consecutive errors
 - Delegates never get the parent's `delegate` tool (no recursion)
 - Task context auto-injected when tools have no declared parameters
+- `delegate.pre` / `delegate.post` hooks can block or rewrite delegation requests and results
 
 ### Lower-level API
 
@@ -216,10 +221,10 @@ a := agent.New(agent.Options{
 
 ```bash
 # Linux/macOS
-export GITHUB_TOKEN=your_token
+export GH_TOKEN=$(gh auth token)
 
 # Windows PowerShell
-$env:GITHUB_TOKEN = "your_token"
+$env:GH_TOKEN = $(gh auth token)
 
 go run ./cmd/example/
 ```
