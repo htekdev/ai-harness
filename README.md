@@ -91,6 +91,10 @@ The harness enforces safety through architecture:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Design Drafts
+
+- [Long-Running Primitives](docs/long-running-primitives.md) — proposed YAML-first model for events, triggers, watchers, schedules, and runtimes.
+
 ## Installation
 
 ```bash
