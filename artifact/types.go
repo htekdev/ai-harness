@@ -146,6 +146,10 @@ type Artifact struct {
 
 	// Priority override (0 = use type default).
 	PriorityOverride int `yaml:"priority,omitempty"`
+
+	// Active reports whether this artifact is currently active based on its condition.
+	// Initialized to true at registration; updated by EvaluateConditions each turn.
+	Active bool `yaml:"-"`
 }
 
 // EffectivePriority returns the priority used for composition ordering.

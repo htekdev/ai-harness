@@ -55,8 +55,37 @@ func (r *Registry) Register(a *Artifact) error {
 	}
 
 	r.artifacts[a.Metadata.Name] = a
+	a.Active = true // default: active until conditions say otherwise
 	r.dirty = true
 	return nil
+}
+
+// UpdateConditions re-evaluates all artifact conditions using evalFn, updating
+// each artifact's Active field in-place under the registry write lock.
+// Per-artifact errors are non-fatal: the artifact retains its prior Active state.
+// Returns the first error encountered (if any); evaluation continues for all artifacts.
+func (r *Registry) UpdateConditions(evalFn func(condition string) (bool, error)) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rebuildOrder()
+
+	var firstErr error
+	for _, a := range r.ordered {
+		if a.Condition == "" {
+			a.Active = true // no condition — always active
+			continue
+		}
+		active, err := evalFn(a.Condition)
+		if err != nil {
+			// Non-fatal: retain prior Active state
+			if firstErr == nil {
+				firstErr = fmt.Errorf("artifact %q condition eval: %w", a.Metadata.Name, err)
+			}
+			continue
+		}
+		a.Active = active
+	}
+	return firstErr
 }
 
 // Get retrieves an artifact by name.
