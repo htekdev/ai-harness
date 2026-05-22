@@ -31,12 +31,12 @@ type TaskEntry struct {
 
 // TaskStore manages async delegate tasks with concurrency limits and TTL cleanup.
 type TaskStore struct {
-	mu          sync.RWMutex
-	tasks       map[string]*TaskEntry
-	maxConc     int
-	semaphore   chan struct{}
-	ttl         time.Duration
-	stopReaper  context.CancelFunc
+	mu         sync.RWMutex
+	tasks      map[string]*TaskEntry
+	maxConc    int
+	semaphore  chan struct{}
+	ttl        time.Duration
+	stopReaper context.CancelFunc
 }
 
 // NewTaskStore creates a task store with the given concurrency limit and result TTL.

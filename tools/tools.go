@@ -35,11 +35,11 @@ type Parameter struct {
 
 // ParameterSchema is a JSON Schema subset for nested parameter definitions.
 type ParameterSchema struct {
-	Type        ParameterType              `json:"type"`
-	Description string                     `json:"description,omitempty"`
+	Type        ParameterType               `json:"type"`
+	Description string                      `json:"description,omitempty"`
 	Properties  map[string]*ParameterSchema `json:"properties,omitempty"`
-	Items       *ParameterSchema           `json:"items,omitempty"`
-	Required    []string                   `json:"required,omitempty"`
+	Items       *ParameterSchema            `json:"items,omitempty"`
+	Required    []string                    `json:"required,omitempty"`
 }
 
 // Definition describes a tool that can be registered and invoked.

@@ -56,28 +56,28 @@ func (r *Reporter) PrintSummary(suite *SuiteResult) {
 
 // JSONReport is the structured output format for CI/artifacts.
 type JSONReport struct {
-	Timestamp  string             `json:"timestamp"`
-	Model      string             `json:"model"`
-	TotalCases int                `json:"total_cases"`
-	Passed     int                `json:"passed"`
-	Failed     int                `json:"failed"`
-	Tokens     int                `json:"tokens"`
-	CostUSD    float64            `json:"cost_usd"`
-	DurationMS int64              `json:"duration_ms"`
-	Aborted    bool               `json:"aborted"`
-	Cases      []JSONCaseResult   `json:"cases"`
+	Timestamp  string           `json:"timestamp"`
+	Model      string           `json:"model"`
+	TotalCases int              `json:"total_cases"`
+	Passed     int              `json:"passed"`
+	Failed     int              `json:"failed"`
+	Tokens     int              `json:"tokens"`
+	CostUSD    float64          `json:"cost_usd"`
+	DurationMS int64            `json:"duration_ms"`
+	Aborted    bool             `json:"aborted"`
+	Cases      []JSONCaseResult `json:"cases"`
 }
 
 // JSONCaseResult is a single case in the JSON report.
 type JSONCaseResult struct {
-	Name       string           `json:"name"`
-	Category   string           `json:"category"`
-	Passed     bool             `json:"passed"`
-	Tokens     int              `json:"tokens"`
-	DurationMS int64            `json:"duration_ms"`
-	Retries    int              `json:"retries"`
-	Error      string           `json:"error,omitempty"`
-	Failures   []JSONGradeFail  `json:"failures,omitempty"`
+	Name       string          `json:"name"`
+	Category   string          `json:"category"`
+	Passed     bool            `json:"passed"`
+	Tokens     int             `json:"tokens"`
+	DurationMS int64           `json:"duration_ms"`
+	Retries    int             `json:"retries"`
+	Error      string          `json:"error,omitempty"`
+	Failures   []JSONGradeFail `json:"failures,omitempty"`
 }
 
 // JSONGradeFail records a specific grading failure.

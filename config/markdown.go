@@ -184,12 +184,12 @@ func ParseHookMarkdown(data []byte, name string) (*HookConfig, error) {
 
 // AgentConfig defines a custom agent loaded from a .md file.
 type AgentConfig struct {
-	Name         string       `yaml:"name" json:"name"`
-	Description  string       `yaml:"description" json:"description"`
-	Model        string       `yaml:"model" json:"model"`
-	SystemPrompt string       `yaml:"-" json:"-"` // from markdown body
-	Tools        []AgentTool  `yaml:"tools" json:"tools"`
-	Hooks        []AgentHook  `yaml:"hooks" json:"hooks"`
+	Name         string      `yaml:"name" json:"name"`
+	Description  string      `yaml:"description" json:"description"`
+	Model        string      `yaml:"model" json:"model"`
+	SystemPrompt string      `yaml:"-" json:"-"` // from markdown body
+	Tools        []AgentTool `yaml:"tools" json:"tools"`
+	Hooks        []AgentHook `yaml:"hooks" json:"hooks"`
 }
 
 // AgentTool can be either a string (reference) or an inline ToolConfig.

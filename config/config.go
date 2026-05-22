@@ -13,12 +13,12 @@ import (
 
 // Config is the top-level harness configuration.
 type Config struct {
-	Model      ModelConfig      `yaml:"model" json:"model"`
-	Models     []ModelConfig    `yaml:"models,omitempty" json:"models,omitempty"`
-	Context    ContextConfig    `yaml:"context" json:"context"`
-	Tools      []ToolConfig     `yaml:"tools" json:"tools"`
-	Hooks      []HookConfig     `yaml:"hooks" json:"hooks"`
-	Delegation DelegationConfig `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+	Model      ModelConfig        `yaml:"model" json:"model"`
+	Models     []ModelConfig      `yaml:"models,omitempty" json:"models,omitempty"`
+	Context    ContextConfig      `yaml:"context" json:"context"`
+	Tools      []ToolConfig       `yaml:"tools" json:"tools"`
+	Hooks      []HookConfig       `yaml:"hooks" json:"hooks"`
+	Delegation DelegationConfig   `yaml:"delegation,omitempty" json:"delegation,omitempty"`
 	Meta       *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
 }
 

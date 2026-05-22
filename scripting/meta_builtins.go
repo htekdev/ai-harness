@@ -60,9 +60,9 @@ type MetaContext struct {
 	Engine     *Engine
 	Config     MetaConfig
 
-	mu             sync.Mutex
-	registeredTools int32
-	registeredHooks int32
+	mu               sync.Mutex
+	registeredTools  int32
+	registeredHooks  int32
 	registeredAgents int32
 }
 
