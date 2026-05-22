@@ -1,8 +1,13 @@
 package artifact
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/htekdev/ai-harness/compose"
+	"github.com/htekdev/ai-harness/scripting"
 )
 
 // Composer resolves a set of registered artifacts into a unified harness view.
@@ -174,4 +179,27 @@ func (c *Composer) Summary() string {
 	}
 
 	return sb.String()
+}
+
+// ErrNilTurnContext is returned by EvaluateConditions when no turn state
+// is available on the provided context.
+var ErrNilTurnContext = errors.New("turn state not available in context")
+
+// EvaluateConditions re-runs all artifact condition expressions against the
+// current turn state and updates each artifact's Active field in place.
+// Non-fatal: per-artifact condition errors retain prior active state.
+// Returns ErrNilTurnContext if ctx has no turn state attached.
+func (c *Composer) EvaluateConditions(ctx context.Context) error {
+	values, ok := scripting.TurnStateValues(ctx)
+	if !ok {
+		return ErrNilTurnContext
+	}
+
+	condCtx := compose.ConditionContext{
+		Values: values,
+	}
+
+	return c.registry.UpdateConditions(func(condition string) (bool, error) {
+		return compose.EvaluateCondition(condition, condCtx)
+	})
 }

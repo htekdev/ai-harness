@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/htekdev/ai-harness/artifact"
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
 	"github.com/htekdev/ai-harness/hooks"
@@ -247,5 +248,66 @@ func TestContextAccessors(t *testing.T) {
 	}
 	if agent.Hooks() == nil {
 		t.Fatal("Hooks() should not be nil")
+	}
+}
+
+func setupTestAgentWithComposer(handler http.HandlerFunc) (*Agent, *artifact.Registry) {
+	server := httptest.NewServer(handler)
+	client := completion.NewClient(completion.ClientConfig{
+		BaseURL:    server.URL,
+		APIKey:     "test-key",
+		MaxRetries: 1,
+	})
+	toolReg := tools.NewRegistry()
+	ctxMgr := agentctx.NewManager(agentctx.Config{SystemPrompt: "You are a test assistant."})
+	artReg := artifact.NewRegistry()
+	composer := artifact.NewComposer(artReg)
+	return New(Options{Client: client, Tools: toolReg, Context: ctxMgr, Composer: composer}), artReg
+}
+
+func TestAgentLoop_ConditionReEval(t *testing.T) {
+	a, artReg := setupTestAgentWithComposer(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{Message: completion.Message{Role: completion.RoleAssistant, Content: "ok"}, FinishReason: "stop"}},
+		})
+	})
+
+	cond := &artifact.Artifact{
+		Metadata:  artifact.Metadata{Name: "turn-ctx", Type: artifact.TypePlugin, Description: "turn-aware plugin"},
+		Condition: `ctx.get("turn", 0) >= 2`,
+	}
+	if err := artReg.Register(cond); err != nil {
+		t.Fatal(err)
+	}
+
+	// Turn 1: condition false → inactive
+	if _, err := a.Run(context.Background(), "turn 1"); err != nil {
+		t.Fatalf("turn 1 failed: %v", err)
+	}
+	if cond.Active {
+		t.Error("artifact should be inactive at turn 1")
+	}
+
+	// Turn 2: condition true → active
+	if _, err := a.Run(context.Background(), "turn 2"); err != nil {
+		t.Fatalf("turn 2 failed: %v", err)
+	}
+	if !cond.Active {
+		t.Error("artifact should be active at turn 2")
+	}
+}
+
+func TestAgentLoop_NoComposer_NoPanic(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{Message: completion.Message{Role: completion.RoleAssistant, Content: "ok"}, FinishReason: "stop"}},
+		})
+	}))
+	client := completion.NewClient(completion.ClientConfig{BaseURL: server.URL, APIKey: "test", MaxRetries: 1})
+	ctxMgr := agentctx.NewManager(agentctx.Config{})
+	a := New(Options{Client: client, Context: ctxMgr})
+	// No composer — should not panic
+	if _, err := a.Run(context.Background(), "hello"); err != nil {
+		t.Fatalf("unexpected error without composer: %v", err)
 	}
 }

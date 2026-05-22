@@ -158,3 +158,32 @@ func requireTurnState(thread *starlark.Thread, name string) (*turnStateStore, er
 	}
 	return store, nil
 }
+
+// SetTurnState sets a value in the per-turn scratchpad.
+// Returns false if no turn state is available on the context.
+func SetTurnState(ctx context.Context, key string, value any) bool {
+	store := turnStateFromContext(ctx)
+	if store == nil {
+		return false
+	}
+	store.mu.Lock()
+	store.values[key] = value
+	store.mu.Unlock()
+	return true
+}
+
+// TurnStateValues returns a snapshot copy of all values in the per-turn scratchpad.
+// Returns (nil, false) if no turn state is available on the context.
+func TurnStateValues(ctx context.Context) (map[string]any, bool) {
+	store := turnStateFromContext(ctx)
+	if store == nil {
+		return nil, false
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	out := make(map[string]any, len(store.values))
+	for k, v := range store.values {
+		out[k] = v
+	}
+	return out, true
+}

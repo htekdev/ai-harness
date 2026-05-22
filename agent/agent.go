@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/htekdev/ai-harness/artifact"
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
 	"github.com/htekdev/ai-harness/hooks"
@@ -28,6 +29,8 @@ type Agent struct {
 	context           *agentctx.Manager
 	logger            *log.Logger
 	maxToolIterations int
+	composer          *artifact.Composer
+	turnNumber        int
 }
 
 // Options configures the agent.
@@ -40,6 +43,8 @@ type Options struct {
 	// MaxToolIterations overrides the default cap on tool-call loops per turn.
 	// 0 means use DefaultMaxToolIterations.
 	MaxToolIterations int
+	// Composer, if provided, will have EvaluateConditions called at the start of each turn.
+	Composer *artifact.Composer
 }
 
 // New creates a new Agent with the given options.
@@ -65,6 +70,7 @@ func New(opts Options) *Agent {
 		context:           opts.Context,
 		logger:            opts.Logger,
 		maxToolIterations: maxIter,
+		composer:          opts.Composer,
 	}
 }
 
@@ -98,6 +104,17 @@ func applyHookPayload(payload any, target any) error {
 // the model produces a final response (no more tool calls).
 func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error) {
 	turnCtx := hooks.WithDispatcher(scripting.WithTurnState(ctx), a.hooks)
+
+	// Increment turn counter and populate turn state
+	a.turnNumber++
+	scripting.SetTurnState(turnCtx, "turn", a.turnNumber)
+
+	// Re-evaluate artifact conditions against fresh turn state
+	if a.composer != nil {
+		if err := a.composer.EvaluateConditions(turnCtx); err != nil {
+			a.logger.Printf("WARN condition re-evaluation failed: %v", err)
+		}
+	}
 
 	// Fire turn.start hook
 	hookResult := a.hooks.Dispatch(turnCtx, hooks.EventTurnStart, userMessage)
