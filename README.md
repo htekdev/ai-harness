@@ -5,9 +5,10 @@
 > *Like Infrastructure as Code, but for AI agent behavior.*
 > Every prompt ships with its governance. Every agent behavior is reproducible, reviewable, and testable.
 
+[![CI](https://github.com/htekdev/ai-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/htekdev/ai-harness/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Release](https://img.shields.io/github/v/release/htekdev/ai-harness?include_prereleases)](https://github.com/htekdev/ai-harness/releases)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-All_Passing-brightgreen.svg)]()
 
 ---
 
@@ -97,6 +98,17 @@ The harness enforces safety through architecture:
 
 ```bash
 go install github.com/htekdev/ai-harness/cmd/harness@latest
+```
+
+### Pre-built binaries
+
+Download from [Releases](https://github.com/htekdev/ai-harness/releases) — available for Linux, macOS, and Windows (amd64 + arm64).
+
+```bash
+# Example: Linux amd64
+curl -Lo harness.tar.gz https://github.com/htekdev/ai-harness/releases/latest/download/harness_linux_amd64.tar.gz
+tar xzf harness.tar.gz
+sudo mv harness /usr/local/bin/
 ```
 
 ### As a library

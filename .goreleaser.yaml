@@ -1,0 +1,72 @@
+# AI Harness — GoReleaser Configuration
+# Builds cross-platform binaries and publishes GitHub Releases on tagged pushes.
+
+version: 2
+
+project_name: harness
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+
+builds:
+  - id: harness
+    main: ./cmd/harness
+    binary: harness
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+      - harness.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+release:
+  github:
+    owner: htekdev
+    name: ai-harness
+  prerelease: auto
+  name_template: "AI Harness v{{.Version}}"
+  header: |
+    ## What's Changed
+
+    Install via Go:
+    ```bash
+    go install github.com/htekdev/ai-harness/cmd/harness@v{{.Version}}
+    ```
+
+    Or download a binary from the assets below.
