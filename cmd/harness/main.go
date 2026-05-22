@@ -13,6 +13,7 @@
 //	tools      List registered tools
 //	hooks      List registered hooks
 //	agents     List configured agents
+//	artifacts  List typed artifacts in the registry
 //	version    Print version information
 package main
 
@@ -68,6 +69,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "artifacts":
+		if err := cmdArtifacts(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Printf("harness %s (commit: %s, built: %s)\n", version, commit, date)
 	case "help", "--help", "-h":
@@ -92,6 +98,7 @@ Commands:
   tools      List registered tools
   hooks      List registered hooks
   agents     List configured agents
+  artifacts  List typed artifacts in the registry
   version    Print version information
 
 Flags:
