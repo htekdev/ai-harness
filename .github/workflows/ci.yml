@@ -34,14 +34,14 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test -race -coverprofile=coverage.out ./...
+        run: go test -race -timeout 5m -coverprofile=coverage.txt ./...
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.go-version }}
-          path: coverage.out
+          path: coverage.txt
 
   lint:
     name: Lint
