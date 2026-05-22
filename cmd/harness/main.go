@@ -14,6 +14,7 @@
 //	hooks      List registered hooks
 //	agents     List configured agents
 //	artifacts  List typed artifacts in the registry
+//	context    Show context window observability (what's active and why)
 //	version    Print version information
 package main
 
@@ -74,6 +75,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "context":
+		if err := cmdContext(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Printf("harness %s (commit: %s, built: %s)\n", version, commit, date)
 	case "help", "--help", "-h":
@@ -99,6 +105,7 @@ Commands:
   hooks      List registered hooks
   agents     List configured agents
   artifacts  List typed artifacts in the registry
+  context    Show context window observability snapshot
   version    Print version information
 
 Flags:
@@ -108,6 +115,7 @@ Examples:
   harness init my-agent
   harness run
   harness validate
+  harness context --verbose
   harness tools
   harness hooks --verbose
 
