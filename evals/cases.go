@@ -12,31 +12,31 @@ import (
 
 // EvalCase represents a single evaluation scenario loaded from a YAML file.
 type EvalCase struct {
-	Name        string        `yaml:"name"`
-	Description string        `yaml:"description"`
-	Category    string        `yaml:"category"`
-	Model       string        `yaml:"model"`
-	MaxTokens   int           `yaml:"max_tokens"`
-	Timeout     time.Duration `yaml:"timeout"`
-	Setup       CaseSetup     `yaml:"setup"`
-	Turns       []CaseTurn    `yaml:"turns"`
+	Name        string           `yaml:"name"`
+	Description string           `yaml:"description"`
+	Category    string           `yaml:"category"`
+	Model       string           `yaml:"model"`
+	MaxTokens   int              `yaml:"max_tokens"`
+	Timeout     time.Duration    `yaml:"timeout"`
+	Setup       CaseSetup        `yaml:"setup"`
+	Turns       []CaseTurn       `yaml:"turns"`
 	Grade       []GradeCriterion `yaml:"grade"`
 }
 
 // CaseSetup defines the harness configuration for an eval case.
 type CaseSetup struct {
-	SystemPrompt string         `yaml:"system_prompt"`
-	Tools        []CaseTool     `yaml:"tools"`
-	Hooks        []CaseHook     `yaml:"hooks"`
+	SystemPrompt string          `yaml:"system_prompt"`
+	Tools        []CaseTool      `yaml:"tools"`
+	Hooks        []CaseHook      `yaml:"hooks"`
 	Delegation   *CaseDelegation `yaml:"delegation,omitempty"`
 }
 
 // CaseTool defines a tool available in the eval harness.
 type CaseTool struct {
-	Name        string                `yaml:"name"`
-	Description string                `yaml:"description"`
-	Parameters  map[string]CaseParam  `yaml:"parameters"`
-	Script      string                `yaml:"script"`
+	Name        string               `yaml:"name"`
+	Description string               `yaml:"description"`
+	Parameters  map[string]CaseParam `yaml:"parameters"`
+	Script      string               `yaml:"script"`
 	// ErrorOnCall makes the tool return an error (for testing error recovery).
 	ErrorOnCall int `yaml:"error_on_call,omitempty"`
 }

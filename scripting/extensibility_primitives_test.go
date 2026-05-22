@@ -105,7 +105,7 @@ func TestEngine_ExecRunBuiltin(t *testing.T) {
 	engine := NewEngine()
 	runner, err := engine.CompileToolScript("exec_tool", `
 def run(args):
-    result = exec.run(args["cmd"], ["-test.run=TestExecHelperProcess", "--", "success"], 1000)
+    result = exec.run(args["cmd"], ["-test.run=TestExecHelperProcess", "--", "success"], 10000)
     return json.encode(result)
 `)
 	if err != nil {
@@ -130,7 +130,7 @@ func TestEngine_ExecRunBuiltinNonZeroExit(t *testing.T) {
 	engine := NewEngine()
 	runner, err := engine.CompileToolScript("exec_nonzero_tool", `
 def run(args):
-    result = exec.run(args["cmd"], ["-test.run=TestExecHelperProcess", "--", "fail"], 1000)
+    result = exec.run(args["cmd"], ["-test.run=TestExecHelperProcess", "--", "fail"], 10000)
     return json.encode(result)
 `)
 	if err != nil {

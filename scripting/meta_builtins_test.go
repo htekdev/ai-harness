@@ -257,7 +257,9 @@ func TestMetaCallTool(t *testing.T) {
 		Description: "Double a number",
 		Parameters:  []tools.Parameter{{Name: "n", Type: tools.TypeNumber}},
 	}, func(ctx context.Context, args json.RawMessage) (string, error) {
-		var a struct{ N int `json:"n"` }
+		var a struct {
+			N int `json:"n"`
+		}
 		json.Unmarshal(args, &a)
 		b, _ := json.Marshal(a.N * 2)
 		return string(b), nil

@@ -123,4 +123,3 @@ func TestRequest_Unmarshal(t *testing.T) {
 		t.Errorf("system_prompt: %q", req.SystemPrompt)
 	}
 }
-
