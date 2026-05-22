@@ -23,6 +23,14 @@ eval-one:
 lint:
 	go vet ./...
 
-# Build example binary
+# Build CLI binary
 build:
-	go build -o bin/harness ./cmd/example
+	go build -ldflags "-X main.version=$(shell git describe --tags --always) -X main.commit=$(shell git rev-parse --short HEAD) -X main.date=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" -o bin/harness ./cmd/harness
+
+# Build example binary
+build-example:
+	go build -o bin/harness-example ./cmd/example
+
+# Install harness CLI to GOPATH/bin
+install:
+	go install -ldflags "-X main.version=$(shell git describe --tags --always) -X main.commit=$(shell git rev-parse --short HEAD) -X main.date=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" ./cmd/harness

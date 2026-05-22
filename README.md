@@ -93,11 +93,13 @@ The harness enforces safety through architecture:
 
 ## Installation
 
+### CLI (recommended)
+
 ```bash
-go install github.com/htekdev/ai-harness/cmd/example@latest
+go install github.com/htekdev/ai-harness/cmd/harness@latest
 ```
 
-Or use as a library:
+### As a library
 
 ```bash
 go get github.com/htekdev/ai-harness
@@ -107,7 +109,41 @@ go get github.com/htekdev/ai-harness
 
 ## Quick Start
 
-### 1. Define your harness in Markdown
+### 1. Scaffold a new project
+
+```bash
+harness init my-agent
+cd my-agent
+```
+
+This creates:
+- `harness.md` — main configuration (YAML frontmatter + system prompt)
+- `.harness/tools/` — tool definitions
+- `.harness/hooks/` — hook definitions
+- `.harness/agents/` — sub-agent definitions
+
+### 2. Validate your harness
+
+```bash
+harness validate
+# ✅ harness.md — valid (6 tools, 2 hooks, 0 agents) [3ms]
+```
+
+### 3. Run interactively
+
+```bash
+harness run
+```
+
+### 4. Inspect your configuration
+
+```bash
+harness tools          # List all registered tools
+harness hooks -v       # List hooks with details
+harness agents         # List configured sub-agents
+```
+
+### 5. Define your harness in Markdown
 
 ```markdown
 <!-- harness.md -->

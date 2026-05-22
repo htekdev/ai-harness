@@ -5,6 +5,7 @@
 *.so
 *.dylib
 ai-harness
+bin/
 
 # Test
 *.test
