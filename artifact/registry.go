@@ -107,6 +107,22 @@ func (r *Registry) All() []*Artifact {
 	return result
 }
 
+// Active returns all registered artifacts where Active == true, in composition order.
+// This is the primary method for per-turn composition after EvaluateConditions has run.
+func (r *Registry) Active() []*Artifact {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rebuildOrder()
+
+	result := make([]*Artifact, 0, len(r.ordered))
+	for _, a := range r.ordered {
+		if a.Active {
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
 // ByType returns all artifacts of a given type in composition order.
 func (r *Registry) ByType(t Type) []*Artifact {
 	r.mu.Lock()

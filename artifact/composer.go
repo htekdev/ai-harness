@@ -64,20 +64,102 @@ type ArtifactSummary struct {
 
 // Compose evaluates all registered artifacts and merges them by priority.
 // The evalFn is called for each artifact's condition to determine if it's active.
-// Pass nil for evalFn to treat all artifacts as active.
+// Pass nil for evalFn to use the pre-computed Active field (from EvaluateConditions).
+//
+// Behavior:
+//   - evalFn == nil: uses each artifact's cached Active field (set by EvaluateConditions).
+//     Artifacts default to Active=true on registration, so this is backward-compatible.
+//   - evalFn != nil: re-evaluates conditions at composition time (ignores cached Active).
+//
+// For full control over composition, use ComposeWith and functional options.
 func (c *Composer) Compose(evalFn func(condition string) (bool, error)) (*ComposedResult, error) {
-	var active []*Artifact
-	var err error
+	if evalFn != nil {
+		return c.ComposeWith(WithEvalFn(evalFn))
+	}
+	return c.ComposeWith()
+}
 
-	if evalFn == nil {
-		active = c.registry.All()
-	} else {
-		active, err = c.registry.Resolve(evalFn)
+// ComposeWith composes artifacts using functional options for fine-grained control.
+// Without options, it composes only artifacts where Active == true (the default
+// after registration or EvaluateConditions).
+//
+// Options:
+//   - WithIncludeInactive(): include deactivated artifacts
+//   - WithTypeFilter(types...): restrict to specific artifact types
+//   - WithTagFilter(tags...): restrict to artifacts with matching tags
+//   - WithEvalFn(fn): re-evaluate conditions at composition time
+func (c *Composer) ComposeWith(opts ...ComposeOption) (*ComposedResult, error) {
+	options := defaultOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	candidates, err := c.resolveArtifacts(options)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.compose(candidates), nil
+}
+
+// resolveArtifacts determines which artifacts participate in composition
+// based on the provided options.
+func (c *Composer) resolveArtifacts(opts *ComposeOptions) ([]*Artifact, error) {
+	var candidates []*Artifact
+
+	if opts.EvalFn != nil {
+		// Dynamic evaluation: call EvalFn for each artifact's condition
+		resolved, err := c.registry.Resolve(opts.EvalFn)
 		if err != nil {
 			return nil, err
 		}
+		candidates = resolved
+	} else if opts.IncludeInactive {
+		// Include everything regardless of Active state
+		candidates = c.registry.All()
+	} else {
+		// Default: use pre-computed Active field
+		candidates = c.registry.Active()
 	}
 
+	// Apply type filter
+	if len(opts.TypeFilter) > 0 {
+		typeSet := make(map[Type]bool, len(opts.TypeFilter))
+		for _, t := range opts.TypeFilter {
+			typeSet[t] = true
+		}
+		filtered := make([]*Artifact, 0, len(candidates))
+		for _, a := range candidates {
+			if typeSet[a.Metadata.Type] {
+				filtered = append(filtered, a)
+			}
+		}
+		candidates = filtered
+	}
+
+	// Apply tag filter
+	if len(opts.TagFilter) > 0 {
+		tagSet := make(map[string]bool, len(opts.TagFilter))
+		for _, tag := range opts.TagFilter {
+			tagSet[tag] = true
+		}
+		filtered := make([]*Artifact, 0, len(candidates))
+		for _, a := range candidates {
+			for _, tag := range a.Metadata.Tags {
+				if tagSet[tag] {
+					filtered = append(filtered, a)
+					break
+				}
+			}
+		}
+		candidates = filtered
+	}
+
+	return candidates, nil
+}
+
+// compose performs the actual merge of artifacts into a ComposedResult.
+func (c *Composer) compose(active []*Artifact) *ComposedResult {
 	result := &ComposedResult{
 		Tools:           make([]ToolDef, 0),
 		Hooks:           make([]HookDef, 0),
@@ -98,7 +180,7 @@ func (c *Composer) Compose(evalFn func(condition string) (bool, error)) (*Compos
 			Version:  a.Metadata.Version,
 			Priority: a.EffectivePriority(),
 			Source:   a.Source,
-			Active:   true,
+			Active:   a.Active,
 		})
 
 		// Identity: harness type provides the base identity
@@ -147,7 +229,7 @@ func (c *Composer) Compose(evalFn func(condition string) (bool, error)) (*Compos
 		result.Tools = append(result.Tools, toolMap[name])
 	}
 
-	return result, nil
+	return result
 }
 
 // Summary returns a human-readable summary of the registry contents.
