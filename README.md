@@ -153,6 +153,13 @@ harness run
 harness tools          # List all registered tools
 harness hooks -v       # List hooks with details
 harness agents         # List configured sub-agents
+harness artifacts      # List typed artifacts in the registry
+harness artifacts -v   # Detailed view with tools, hooks, conditions
+harness artifacts --type plugin  # Filter by artifact type
+harness context        # Show context window composition (what the agent sees)
+harness context -v     # Detailed provenance (which file, which artifact, why)
+harness context --json # Machine-readable context snapshot
+harness context --budget 64000  # Show token budget utilization
 ```
 
 ### 5. Define your harness in Markdown
@@ -825,9 +832,135 @@ ai-harness/
 └── go.mod
 ```
 
+## Typed Artifact System
+
+Artifacts are the fundamental building blocks of a harness. Each artifact is a single Markdown file that bundles identity, tools, hooks, and models into one composable unit.
+
+### Artifact Types (priority order)
+
+| Type | Priority | Purpose |
+|------|----------|---------|
+| `override` | 100 | Project-local overrides that supersede anything |
+| `harness` | 80 | Root identity and policy (exactly one per project) |
+| `builtin` | 60 | Core capabilities shipped with the runtime |
+| `plugin` | 40 | User-authored or third-party capability bundles |
+| `model` | 20 | Provider/model onboarding configurations |
+
+### One file = one capability
+
+```markdown
+---
+name: git-safety
+type: plugin
+version: 1.0.0
+description: Prevent force-pushes and history rewrites
+tags: [governance, git]
+condition: '"*.git*" in ctx.get("active_files", [])'
+tools:
+  - name: git-status
+    description: Show git status safely
+    timeout_ms: 5000
+hooks:
+  - event: onPreToolUse
+    handler: block_force_push
+    script: |
+      def handle(event, payload):
+          if "force" in payload.get("args", ""):
+              return deny("Force push blocked by governance")
+          return allow()
+---
+
+Git safety context: this plugin ensures all git operations
+go through the governed workflow. Force pushes are blocked
+at the architectural level.
+```
+
+### Per-turn evaluation
+
+Artifacts with `condition` expressions are evaluated **every turn** using Starlark:
+
+```yaml
+condition: 'ctx.get("turn", 0) > 3'          # Activate after turn 3
+condition: 'ctx.get("mode") == "review"'      # Activate in review mode
+condition: 'len(time.now()) > 0'              # Always active (time-based)
+```
+
+After `EvaluateConditions()` runs, each artifact's `Active` field reflects whether it should participate in composition. This is the key differentiator: **governance adapts per-turn, not just at startup**.
+
+## Composition & Options Pattern
+
+The `Composer` merges all active artifacts into a unified view using priority-based resolution.
+
+### Basic usage
+
+```go
+import "github.com/htekdev/ai-harness/artifact"
+
+reg := artifact.NewRegistry()
+// ... register artifacts ...
+
+composer := artifact.NewComposer(reg)
+
+// Default: compose only Active artifacts (respects EvaluateConditions)
+result, err := composer.Compose(nil)
+
+// With dynamic condition evaluation at compose time
+result, err = composer.Compose(func(cond string) (bool, error) {
+    return evaluateStarlark(cond)
+})
+```
+
+### Functional options (ComposeWith)
+
+For fine-grained control over composition:
+
+```go
+// Only active artifacts (default)
+result, _ := composer.ComposeWith()
+
+// Include inactive artifacts (debugging/observability)
+result, _ := composer.ComposeWith(artifact.WithIncludeInactive())
+
+// Filter by type
+result, _ := composer.ComposeWith(artifact.WithTypeFilter(artifact.TypePlugin))
+
+// Filter by tag
+result, _ := composer.ComposeWith(artifact.WithTagFilter("governance"))
+
+// Dynamic evaluation (overrides cached Active state)
+result, _ := composer.ComposeWith(artifact.WithEvalFn(myEvalFn))
+
+// Combine options
+result, _ := composer.ComposeWith(
+    artifact.WithTypeFilter(artifact.TypePlugin, artifact.TypeBuiltin),
+    artifact.WithTagFilter("security"),
+)
+```
+
+### Per-turn lifecycle
+
+The full per-turn workflow:
+
+```go
+// 1. Set turn state
+ctx := scripting.WithTurnState(context.Background())
+scripting.SetTurnState(ctx, "turn", turnNumber)
+scripting.SetTurnState(ctx, "mode", "coding")
+
+// 2. Evaluate all artifact conditions against current state
+composer.EvaluateConditions(ctx)
+
+// 3. Compose only the artifacts that passed evaluation
+result, err := composer.Compose(nil)
+// result.Tools       — deduplicated, priority-ordered tools
+// result.Hooks       — all hooks from active artifacts
+// result.Identity    — merged system prompt from harness artifact
+// result.ContextBlocks — context from all active non-harness artifacts
+```
+
 ## Status
 
-**v0.1.0** — Production-ready core. All packages tested, all primitives functional.
+**v0.3.0** — Typed artifact system, context observability, per-turn evaluation engine.
 
 | Component | Status |
 |-----------|--------|
@@ -839,6 +972,10 @@ ai-harness/
 | Completion client (streaming) | ✅ Stable |
 | Eval framework | ✅ Stable |
 | `.harness/` directory convention | ✅ Stable |
+| Typed artifact registry | ✅ Stable |
+| Context observability | ✅ Stable |
+| Per-turn evaluation engine | ✅ Stable |
+| Composition options pattern | ✅ Stable |
 
 ## Contributing
 
