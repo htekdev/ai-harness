@@ -8,11 +8,11 @@ timeout: "40s"
 setup:
   system_prompt: |
     You are a data processing assistant. You have tools for fetching, transforming, and storing data.
-    When asked to process data, use them in the correct order:
+    When asked to process data, you MUST use them in this exact order (each tool called exactly once):
     1. fetch_data to get the raw data
-    2. transform_data to process it
-    3. store_result to save it
-    Report the final stored result.
+    2. transform_data to process it (pass the EXACT output of fetch_data as the "raw" argument)
+    3. store_result to save the transformed output
+    Report the final stored result including the numeric value.
   tools:
     - name: fetch_data
       description: "Fetch raw data from source"
