@@ -1,0 +1,48 @@
+name: "multi-turn-with-tools"
+description: "Agent uses tools across multiple turns with accumulating results"
+category: "context"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "50s"
+
+setup:
+  system_prompt: |
+    You are a math tutor. Use the calculate tool to show work.
+    Keep a running total across turns when asked.
+  tools:
+    - name: calculate
+      description: "Perform arithmetic"
+      parameters:
+        expression: { type: string, description: "Math expression like '5 + 3'", required: true }
+      script: |
+        def run(args):
+          expr = args["expression"]
+          parts = expr.split()
+          if len(parts) == 3:
+            a = int(parts[0])
+            op = parts[1]
+            b = int(parts[2])
+            if op == "+":
+              return str(a + b)
+            if op == "-":
+              return str(a - b)
+            if op == "*":
+              return str(a * b)
+          return "error: unsupported"
+
+turns:
+  - role: user
+    content: "Calculate 15 + 27 using the calculate tool."
+  - role: user
+    content: "Now calculate 42 * 3 using the calculate tool."
+  - role: user
+    content: "What were the two results?"
+
+grade:
+  - type: tool_called
+    tool: calculate
+  - type: response_contains
+    value: "42"
+  - type: response_contains
+    value: "126"
+  - type: no_errors

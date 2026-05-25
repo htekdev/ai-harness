@@ -1,0 +1,54 @@
+name: "tool-fs-operations"
+description: "Starlark fs built-ins work correctly for file read/write/exists"
+category: "scripting"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a file management assistant. Use the tools available to work with files.
+    Report exactly what the tools return.
+  tools:
+    - name: write_config
+      description: "Write a configuration value to a file"
+      parameters:
+        key: { type: string, description: "Config key", required: true }
+        value: { type: string, description: "Config value", required: true }
+      script: |
+        def run(args):
+          content = args["key"] + "=" + args["value"]
+          fs.write("config.txt", content)
+          return "Written: " + content
+    - name: read_config
+      description: "Read the configuration file"
+      parameters: {}
+      script: |
+        def run(args):
+          if not fs.exists("config.txt"):
+            return "No config file found"
+          return fs.read("config.txt")
+    - name: check_exists
+      description: "Check if a file exists"
+      parameters:
+        path: { type: string, description: "File path to check", required: true }
+      script: |
+        def run(args):
+          if fs.exists(args["path"]):
+            return "EXISTS"
+          return "NOT_FOUND"
+
+turns:
+  - role: user
+    content: "Write config key='timeout' value='30s' using write_config, then read it back with read_config."
+
+grade:
+  - type: tool_called
+    tool: write_config
+  - type: tool_called
+    tool: read_config
+  - type: response_contains
+    value: "timeout"
+  - type: response_contains
+    value: "30s"
+  - type: no_errors

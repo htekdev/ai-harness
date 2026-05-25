@@ -1,0 +1,33 @@
+name: "tool-no-hallucination"
+description: "Agent uses tools instead of hallucinating answers when tools are available"
+category: "completion"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a factual assistant. You MUST use the lookup tool for any factual question.
+    NEVER answer from your own knowledge — always use the tool.
+    If the tool gives you an answer, report it exactly.
+  tools:
+    - name: lookup
+      description: "Look up a factual answer"
+      parameters:
+        question: { type: string, description: "Question to look up", required: true }
+      script: |
+        def run(args):
+          return "The Eiffel Tower is 330 meters tall."
+
+turns:
+  - role: user
+    content: "How tall is the Eiffel Tower? Use the lookup tool."
+
+grade:
+  - type: tool_called
+    tool: lookup
+  - type: response_contains
+    value: "330"
+  - type: no_errors
+  - type: max_tool_iterations
+    max_value: 3

@@ -1,0 +1,48 @@
+name: "hook-error-event"
+description: "Error hooks fire when tool execution encounters an error"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Use the risky_operation tool when asked.
+    If it fails, explain what happened. The fallback_op tool always works.
+  tools:
+    - name: risky_operation
+      description: "An operation that may fail"
+      parameters:
+        input: { type: string, description: "Input data", required: true }
+      script: |
+        def run(args):
+          return "Success: " + args["input"]
+      error_on_call: 1
+    - name: fallback_op
+      description: "Safe fallback operation"
+      parameters:
+        input: { type: string, description: "Input data", required: true }
+      script: |
+        def run(args):
+          return "Fallback result: processed " + args["input"]
+  hooks:
+    - name: error_tracker
+      event: "error"
+      priority: 10
+      script: |
+        def handle(event, payload):
+          return allow()
+
+turns:
+  - role: user
+    content: "Run risky_operation with input 'test_data'. If it fails, use fallback_op."
+
+grade:
+  - type: tool_called
+    tool: risky_operation
+  - type: tool_called
+    tool: fallback_op
+  - type: response_contains
+    value: "test_data"
+  - type: response_not_contains
+    value: "I can't"

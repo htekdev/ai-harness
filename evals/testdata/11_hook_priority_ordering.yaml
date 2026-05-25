@@ -1,0 +1,52 @@
+name: "hook-priority-ordering"
+description: "Multiple hooks on the same event fire in priority order; lowest priority fires first"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Use the write_file tool to save content.
+    If a tool call is blocked, explain the error to the user.
+  tools:
+    - name: write_file
+      description: "Write content to a file"
+      parameters:
+        path: { type: string, description: "File path", required: true }
+        content: { type: string, description: "File content", required: true }
+      script: |
+        def run(args):
+          return "Written: " + args["path"]
+  hooks:
+    - name: audit_logger
+      event: "tool.pre"
+      priority: 100
+      script: |
+        def handle(event, payload):
+          return allow()
+    - name: path_validator
+      event: "tool.pre"
+      priority: 10
+      when: 'payload["name"] == "write_file"'
+      script: |
+        def handle(event, payload):
+          args = payload["arguments"]
+          path = args.get("path", "")
+          if path.startswith("/sys") or path.startswith("/proc"):
+            return block("Cannot write to system paths: " + path)
+          return allow()
+
+turns:
+  - role: user
+    content: "Write 'hello' to the file /sys/kernel/config. Use the write_file tool."
+
+grade:
+  - type: tool_called
+    tool: write_file
+  - type: hook_fired
+    value: "path_validator"
+  - type: hook_blocked
+    value: "path_validator"
+  - type: response_not_contains
+    value: "Written:"

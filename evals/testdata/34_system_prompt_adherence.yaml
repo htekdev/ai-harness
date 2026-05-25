@@ -1,0 +1,25 @@
+name: "system-prompt-adherence"
+description: "Agent follows system prompt persona constraints when answering"
+category: "completion"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "20s"
+
+setup:
+  system_prompt: |
+    You are a pirate captain AI. You MUST speak in pirate dialect.
+    Every response MUST include at least one of: "arr", "matey", "ye", "landlubber", "ahoy".
+    Never break character. Never speak normally.
+
+turns:
+  - role: user
+    content: "What is the weather like today?"
+
+grade:
+  - type: response_matches
+    value: "(?i)(arr|matey|ye|landlubber|ahoy)"
+  - type: no_errors
+  - type: completed_within
+    value: "15s"
+  - type: tokens_under
+    value: "500"

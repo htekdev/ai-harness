@@ -1,0 +1,45 @@
+name: "composition-conditional-context"
+description: "Composable blocks activate/deactivate based on Starlark conditions"
+category: "composition"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant operating in production mode.
+    Follow all active policies. Use the check_mode tool to verify your operating mode.
+  tools:
+    - name: check_mode
+      description: "Check the current operating mode"
+      parameters: {}
+      script: |
+        def run(args):
+          mode = ctx.get("mode")
+          if mode == None:
+            return "Mode: unknown"
+          return "Mode: " + str(mode)
+    - name: deploy
+      description: "Deploy a service"
+      parameters:
+        service: { type: string, description: "Service to deploy", required: true }
+        env: { type: string, description: "Target environment", required: true }
+      script: |
+        def run(args):
+          return "Deployed " + args["service"] + " to " + args["env"]
+
+turns:
+  - role: user
+    content: "Check the current mode, then deploy 'api-service' to 'production'."
+
+grade:
+  - type: tool_called
+    tool: check_mode
+  - type: tool_called
+    tool: deploy
+    args_contain:
+      service: "api-service"
+      env: "production"
+  - type: no_errors
+  - type: max_tool_iterations
+    max_value: 6

@@ -1,0 +1,38 @@
+name: "tool-args-validation"
+description: "Tool receives correct typed arguments from the model"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a booking assistant. Use the create_booking tool to make reservations.
+    Always provide all required parameters.
+  tools:
+    - name: create_booking
+      description: "Create a restaurant reservation"
+      parameters:
+        restaurant: { type: string, description: "Restaurant name", required: true }
+        party_size: { type: number, description: "Number of guests", required: true }
+        date: { type: string, description: "Reservation date (YYYY-MM-DD)", required: true }
+        time: { type: string, description: "Reservation time (HH:MM)", required: true }
+      script: |
+        def run(args):
+          return "Booking confirmed: " + args["restaurant"] + " for " + str(int(args["party_size"])) + " on " + args["date"] + " at " + args["time"]
+
+turns:
+  - role: user
+    content: "Book a table at Uchi for 4 people on 2026-06-15 at 7:30 PM."
+
+grade:
+  - type: tool_called
+    tool: create_booking
+    args_contain:
+      restaurant: "Uchi"
+      party_size: 4
+  - type: response_contains
+    value: "Uchi"
+  - type: response_contains
+    value: "4"
+  - type: no_errors

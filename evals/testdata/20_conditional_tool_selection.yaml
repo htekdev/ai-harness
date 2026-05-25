@@ -1,0 +1,55 @@
+name: "conditional-tool-selection"
+description: "Agent selects the right tool from many based on task requirements"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant with specialized tools.
+    - Use string_length for counting characters
+    - Use word_count for counting words
+    - Use reverse_string for reversing text
+    Choose the RIGHT tool for the task. Only call one tool per request.
+  tools:
+    - name: string_length
+      description: "Count the number of characters in a string"
+      parameters:
+        text: { type: string, description: "Input text", required: true }
+      script: |
+        def run(args):
+          return str(len(args["text"]))
+    - name: word_count
+      description: "Count the number of words in a string"
+      parameters:
+        text: { type: string, description: "Input text", required: true }
+      script: |
+        def run(args):
+          return str(len(args["text"].split()))
+    - name: reverse_string
+      description: "Reverse a string"
+      parameters:
+        text: { type: string, description: "Input text", required: true }
+      script: |
+        def run(args):
+          text = args["text"]
+          reversed = ""
+          for i in range(len(text) - 1, -1, -1):
+            reversed = reversed + text[i]
+          return reversed
+
+turns:
+  - role: user
+    content: "How many words are in the phrase 'the quick brown fox jumps over the lazy dog'?"
+
+grade:
+  - type: tool_called
+    tool: word_count
+  - type: tool_not_called
+    tool: string_length
+  - type: tool_not_called
+    tool: reverse_string
+  - type: response_contains
+    value: "9"
+  - type: no_errors

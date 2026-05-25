@@ -1,0 +1,31 @@
+name: "delegation-multi-tool-subagent"
+description: "Sub-agent receives multiple tools and uses the correct one"
+category: "delegation"
+model: "gpt-4o-mini"
+max_tokens: 1000
+timeout: "90s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant that delegates specialized work.
+    Use delegate to create sub-agents with multiple tools.
+    Report the sub-agent's answer verbatim.
+  delegation:
+    max_depth: 2
+    iterations_per_depth: [10, 5]
+
+turns:
+  - role: user
+    content: |
+      Create a sub-agent with TWO tools:
+      1. 'add' — params: a (number), b (number) — script: def run(args):\n  return str(int(args["a"]) + int(args["b"]))
+      2. 'multiply' — params: a (number), b (number) — script: def run(args):\n  return str(int(args["a"]) * int(args["b"]))
+      
+      Task for the sub-agent: "Use the multiply tool to compute 7 * 8 and report the result."
+
+grade:
+  - type: delegation_occurred
+  - type: response_contains
+    value: "56"
+  - type: response_not_contains
+    value: "I can't"

@@ -1,0 +1,42 @@
+name: "tool-retry-guard"
+description: "After 2 consecutive errors from the same tool, the agent stops retrying and adapts"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Use primary_api to fetch data.
+    If it fails repeatedly, use manual_answer to provide the response directly.
+    Do not keep retrying a failing tool more than twice.
+  tools:
+    - name: primary_api
+      description: "Primary data API (unreliable)"
+      parameters:
+        question: { type: string, description: "Question to answer", required: true }
+      script: |
+        def run(args):
+          return "Water boils at 100 degrees Celsius."
+      error_on_call: 3
+    - name: manual_answer
+      description: "Provide a manual answer from knowledge"
+      parameters:
+        answer: { type: string, description: "The answer", required: true }
+      script: |
+        def run(args):
+          return "Answer provided: " + args["answer"]
+
+turns:
+  - role: user
+    content: "At what temperature does water boil? Use primary_api. If it keeps failing, use manual_answer."
+
+grade:
+  - type: tool_called
+    tool: primary_api
+  - type: tool_called
+    tool: manual_answer
+  - type: max_tool_iterations
+    max_value: 8
+  - type: response_not_contains
+    value: "I can't"

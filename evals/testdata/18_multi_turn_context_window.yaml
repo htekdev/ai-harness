@@ -1,0 +1,32 @@
+name: "multi-turn-context-window"
+description: "Agent correctly tracks conversation history across 4 turns"
+category: "context"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "50s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant that remembers everything the user tells you.
+    When asked to recall information, use your conversation history.
+
+turns:
+  - role: user
+    content: "My dog's name is Rufus and he is a golden retriever."
+  - role: user
+    content: "I live in Austin, Texas."
+  - role: user
+    content: "My favorite food is tacos."
+  - role: user
+    content: "Tell me my dog's name, my city, and my favorite food."
+
+grade:
+  - type: response_contains
+    value: "Rufus"
+  - type: response_contains
+    value: "Austin"
+  - type: response_contains
+    value: "tacos"
+  - type: no_errors
+  - type: tokens_under
+    value: "3000"

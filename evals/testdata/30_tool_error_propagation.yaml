@@ -1,0 +1,40 @@
+name: "tool-error-message-propagation"
+description: "When a tool returns an error, the error message reaches the model correctly"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Use the validate_email tool to check emails.
+    If validation fails, report the exact error to the user.
+  tools:
+    - name: validate_email
+      description: "Validate an email address format"
+      parameters:
+        email: { type: string, description: "Email to validate", required: true }
+      script: |
+        def run(args):
+          email = args["email"]
+          if "@" not in email:
+            return "ERROR: Missing @ symbol in email"
+          parts = email.split("@")
+          if len(parts) != 2 or "." not in parts[1]:
+            return "ERROR: Invalid domain format"
+          return "VALID: " + email
+
+turns:
+  - role: user
+    content: "Validate the email 'notanemail' using the validate_email tool and tell me if it's valid."
+
+grade:
+  - type: tool_called
+    tool: validate_email
+    args_contain:
+      email: "notanemail"
+  - type: response_contains
+    value: "@"
+  - type: response_not_contains
+    value: "VALID: notanemail"
+  - type: no_errors

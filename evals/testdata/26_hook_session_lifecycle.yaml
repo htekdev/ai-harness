@@ -1,0 +1,36 @@
+name: "hook-session-lifecycle"
+description: "Session start/end hooks fire correctly during agent lifecycle"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Answer questions concisely.
+  hooks:
+    - name: session_tracker
+      event: "session.start"
+      priority: 10
+      script: |
+        def handle(event, payload):
+          return allow()
+    - name: session_end_tracker
+      event: "session.end"
+      priority: 10
+      script: |
+        def handle(event, payload):
+          return allow()
+
+turns:
+  - role: user
+    content: "What is 2 + 2?"
+
+grade:
+  - type: hook_fired
+    value: "session_tracker"
+  - type: response_contains
+    value: "4"
+  - type: no_errors
+  - type: completed_within
+    value: "20s"

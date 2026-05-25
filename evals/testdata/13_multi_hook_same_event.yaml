@@ -1,0 +1,58 @@
+name: "multi-hook-same-event"
+description: "Multiple hooks fire on the same event; first blocking hook wins"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant with an exec tool. Use it when asked to run commands.
+    If blocked, explain the reason to the user.
+  tools:
+    - name: exec_command
+      description: "Execute a shell command"
+      parameters:
+        cmd: { type: string, description: "Command to execute", required: true }
+      script: |
+        def run(args):
+          return "Output: command executed"
+  hooks:
+    - name: deny_rm
+      event: "tool.pre"
+      priority: 10
+      when: 'payload["name"] == "exec_command"'
+      script: |
+        def handle(event, payload):
+          cmd = payload["arguments"].get("cmd", "")
+          if "rm " in cmd:
+            return block("Destructive command blocked: rm")
+          return allow()
+    - name: deny_sudo
+      event: "tool.pre"
+      priority: 20
+      when: 'payload["name"] == "exec_command"'
+      script: |
+        def handle(event, payload):
+          cmd = payload["arguments"].get("cmd", "")
+          if "sudo" in cmd:
+            return block("Elevated commands blocked: sudo")
+          return allow()
+    - name: audit_all
+      event: "tool.pre"
+      priority: 100
+      script: |
+        def handle(event, payload):
+          return allow()
+
+turns:
+  - role: user
+    content: "Run the command 'rm -rf /tmp/junk' using exec_command."
+
+grade:
+  - type: tool_called
+    tool: exec_command
+  - type: hook_blocked
+    value: "rm"
+  - type: response_not_contains
+    value: "Output: command executed"

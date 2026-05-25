@@ -1,0 +1,61 @@
+name: "multi-tool-composition"
+description: "Agent chains 3+ tools together to accomplish a complex task"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "40s"
+
+setup:
+  system_prompt: |
+    You are a data processing assistant. You have tools for fetching, transforming, and storing data.
+    When asked to process data, use them in the correct order:
+    1. fetch_data to get the raw data
+    2. transform_data to process it
+    3. store_result to save it
+    Report the final stored result.
+  tools:
+    - name: fetch_data
+      description: "Fetch raw data from source"
+      parameters:
+        source: { type: string, description: "Data source name", required: true }
+      script: |
+        def run(args):
+          return "raw_value:25"
+    - name: transform_data
+      description: "Transform raw data by doubling the numeric value"
+      parameters:
+        raw: { type: string, description: "Raw data string", required: true }
+      script: |
+        def run(args):
+          parts = args["raw"].split(":")
+          if len(parts) == 2:
+            val = int(parts[1]) * 2
+            return "transformed:" + str(val)
+          return "error: invalid format"
+    - name: store_result
+      description: "Store the final result"
+      parameters:
+        data: { type: string, description: "Data to store", required: true }
+        destination: { type: string, description: "Storage destination", required: true }
+      script: |
+        def run(args):
+          return "Stored '" + args["data"] + "' to " + args["destination"]
+
+turns:
+  - role: user
+    content: |
+      Process data from source 'sensors': fetch it, transform it, then store the result to 'database'.
+      Use all three tools in sequence.
+
+grade:
+  - type: tool_called
+    tool: fetch_data
+  - type: tool_called
+    tool: transform_data
+  - type: tool_called
+    tool: store_result
+  - type: response_contains
+    value: "50"
+  - type: max_tool_iterations
+    max_value: 8
+  - type: no_errors

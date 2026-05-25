@@ -1,0 +1,36 @@
+name: "tool-json-output"
+description: "Tool returns structured JSON and agent parses it correctly"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a data analyst. Use the query_db tool to get structured data.
+    Parse the JSON result and report the findings in natural language.
+  tools:
+    - name: query_db
+      description: "Query a database and return JSON results"
+      parameters:
+        table: { type: string, description: "Table to query", required: true }
+      script: |
+        def run(args):
+          return json.encode({"rows": [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}], "count": 2})
+
+turns:
+  - role: user
+    content: "Query the 'users' table and tell me how many users there are and their names."
+
+grade:
+  - type: tool_called
+    tool: query_db
+    args_contain:
+      table: "users"
+  - type: response_contains
+    value: "Alice"
+  - type: response_contains
+    value: "Bob"
+  - type: response_matches
+    value: "(?i)(2|two)"
+  - type: no_errors

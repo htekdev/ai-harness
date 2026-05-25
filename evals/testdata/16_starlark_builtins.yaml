@@ -1,0 +1,38 @@
+name: "starlark-ctx-module"
+description: "Tool scripts can access ctx state for conditional behavior"
+category: "scripting"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant with a greeting tool. Call it with the user's name.
+  tools:
+    - name: greet
+      description: "Generate a greeting for a person"
+      parameters:
+        name: { type: string, description: "Person's name", required: true }
+      script: |
+        def run(args):
+          name = args["name"]
+          return "Hello, " + name + "! Welcome aboard."
+    - name: get_time
+      description: "Get the current time"
+      parameters: {}
+      script: |
+        def run(args):
+          return time.now()
+
+turns:
+  - role: user
+    content: "Greet Alice using the greet tool."
+
+grade:
+  - type: tool_called
+    tool: greet
+    args_contain:
+      name: "Alice"
+  - type: response_contains
+    value: "Alice"
+  - type: no_errors

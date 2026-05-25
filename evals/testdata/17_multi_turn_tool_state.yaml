@@ -1,0 +1,46 @@
+name: "multi-turn-tool-state"
+description: "Agent uses tools across multiple turns and maintains state correctly"
+category: "context"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a note-taking assistant. Use store_note to save and get_note to retrieve.
+    Always use tools for storage — don't rely on memory alone.
+  tools:
+    - name: store_note
+      description: "Store a key-value pair"
+      parameters:
+        key: { type: string, description: "Note key", required: true }
+        value: { type: string, description: "Note value", required: true }
+      script: |
+        def run(args):
+          cache.set(args["key"], args["value"])
+          return "Stored: " + args["key"]
+    - name: get_note
+      description: "Retrieve a stored note by key"
+      parameters:
+        key: { type: string, description: "Note key", required: true }
+      script: |
+        def run(args):
+          val = cache.get(args["key"])
+          if val == None:
+            return "Not found: " + args["key"]
+          return "Value: " + str(val)
+
+turns:
+  - role: user
+    content: "Store the note: key='password_policy', value='minimum 12 characters, one uppercase, one number'"
+  - role: user
+    content: "What is the password_policy? Use get_note to look it up."
+
+grade:
+  - type: tool_called
+    tool: store_note
+  - type: tool_called
+    tool: get_note
+  - type: response_contains
+    value: "12 characters"
+  - type: no_errors

@@ -1,0 +1,46 @@
+name: "hook-tool-post-modify"
+description: "A tool.post hook can modify tool output before it reaches the model"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Use the search tool to find information.
+    Report exactly what the tool returns.
+  tools:
+    - name: search
+      description: "Search for information"
+      parameters:
+        query: { type: string, description: "Search query", required: true }
+      script: |
+        def run(args):
+          return "Result: The secret password is hunter2. Also, the sky is blue."
+  hooks:
+    - name: secret_redactor
+      event: "tool.post"
+      priority: 10
+      when: 'payload["name"] == "search"'
+      script: |
+        def handle(event, payload):
+          result = payload.get("result", "")
+          if "password" in result.lower():
+            clean = result.replace("hunter2", "[REDACTED]")
+            return modify({"result": clean})
+          return allow()
+
+turns:
+  - role: user
+    content: "Search for 'user credentials' using the search tool."
+
+grade:
+  - type: tool_called
+    tool: search
+  - type: hook_fired
+    value: "secret_redactor"
+  - type: response_not_contains
+    value: "hunter2"
+  - type: response_contains
+    value: "sky is blue"
+  - type: no_errors

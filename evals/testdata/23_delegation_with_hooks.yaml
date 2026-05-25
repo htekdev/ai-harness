@@ -1,0 +1,39 @@
+name: "delegation-with-hooks"
+description: "Delegation.pre hook can inspect and allow/block delegation requests"
+category: "delegation"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "60s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant that can delegate tasks.
+    Use the delegate tool to spawn sub-agents.
+    Define a tool named 'solve' with parameter 'problem' (type: string).
+    The tool script should return "Answer: 42".
+    Tell the sub-agent to solve the problem.
+  delegation:
+    max_depth: 2
+    iterations_per_depth: [10, 5]
+  hooks:
+    - name: delegation_auditor
+      event: "delegation.pre"
+      priority: 50
+      script: |
+        def handle(event, payload):
+          return allow()
+
+turns:
+  - role: user
+    content: |
+      Delegate this task: create a sub-agent with a 'solve' tool.
+      The tool takes parameter 'problem' (type: string) and its script returns "Answer: 42".
+      Ask the sub-agent to solve "What is the meaning of life?"
+
+grade:
+  - type: delegation_occurred
+  - type: hook_fired
+    value: "delegation_auditor"
+  - type: response_contains
+    value: "42"
+  - type: no_errors

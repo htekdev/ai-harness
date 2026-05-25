@@ -1,0 +1,52 @@
+name: "parallel-tool-calls"
+description: "Agent makes multiple independent tool calls in a single turn efficiently"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a data retrieval assistant. When asked for multiple pieces of data,
+    call the appropriate tools. You may call multiple tools per turn.
+  tools:
+    - name: get_weather
+      description: "Get weather for a city"
+      parameters:
+        city: { type: string, description: "City name", required: true }
+      script: |
+        def run(args):
+          city = args["city"]
+          if "Austin" in city:
+            return "Austin: 95°F, sunny"
+          if "Seattle" in city:
+            return "Seattle: 62°F, rainy"
+          return city + ": 72°F, cloudy"
+    - name: get_time
+      description: "Get current time for a timezone"
+      parameters:
+        timezone: { type: string, description: "Timezone name", required: true }
+      script: |
+        def run(args):
+          return args["timezone"] + ": 10:00 AM"
+
+turns:
+  - role: user
+    content: "What's the weather in Austin and Seattle? Also what time is it in CST?"
+
+grade:
+  - type: tool_called
+    tool: get_weather
+    args_contain:
+      city: "Austin"
+  - type: tool_called
+    tool: get_weather
+    args_contain:
+      city: "Seattle"
+  - type: tool_called
+    tool: get_time
+  - type: response_contains
+    value: "95"
+  - type: response_contains
+    value: "62"
+  - type: no_errors
