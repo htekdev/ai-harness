@@ -365,14 +365,24 @@ func (d *Delegator) buildDelegateSystemPrompt(req Request) string {
 }
 
 func applyHookPayload(payload any, target any) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
 	rv := reflect.ValueOf(target)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("target must be a non-nil pointer")
+	}
+
+	// If payload is a map (from Starlark scripts), merge onto target preserving unspecified fields.
+	if m, isMap := payload.(map[string]interface{}); isMap {
+		data, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(data, target)
+	}
+
+	// If payload is a Go struct (from Go hooks), replace the target entirely.
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
 	}
 	rv.Elem().Set(reflect.Zero(rv.Elem().Type()))
 	return json.Unmarshal(data, target)
@@ -434,15 +444,15 @@ func (d *Delegator) CreateDelegateToolHandler() tools.Handler {
 	return func(ctx context.Context, args json.RawMessage) (string, error) {
 		var req Request
 		if err := json.Unmarshal(args, &req); err != nil {
-			return "", fmt.Errorf("parse delegate args: %w", err)
+			return "", fmt.Errorf("parse delegate args (expected JSON with 'task' and 'tools' fields): %w", err)
 		}
 
 		if req.Task == "" {
-			return "", fmt.Errorf("delegate requires a task")
+			return "", fmt.Errorf("delegate requires a 'task' field describing what the sub-agent should do")
 		}
 		// Tools can come from agent resolution, so don't require them upfront
 		if len(req.Tools) == 0 && req.Agent == "" {
-			return "", fmt.Errorf("delegate requires tools or an agent name")
+			return "", fmt.Errorf("delegate requires 'tools' array (each with name, script, parameters) or an 'agent' name")
 		}
 
 		result, err := d.Execute(ctx, req)
@@ -450,7 +460,11 @@ func (d *Delegator) CreateDelegateToolHandler() tools.Handler {
 			return "", err
 		}
 
-		return result.Response, nil
+		// Return a clearly structured response so the parent agent knows delegation completed
+		if result.Response == "" {
+			return "DELEGATION COMPLETE: sub-agent finished but produced no output", nil
+		}
+		return fmt.Sprintf("DELEGATION COMPLETE: %s", result.Response), nil
 	}
 }
 

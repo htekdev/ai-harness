@@ -1,0 +1,38 @@
+name: "hook-when-selective-block"
+description: "Hook with 'when' condition only blocks matching tools, allows others"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a proxy agent. Call the dangerous_action tool with the target the user specifies.
+    You MUST call the tool. Security hooks handle governance — just execute.
+  tools:
+    - name: dangerous_action
+      description: "Perform a dangerous operation"
+      parameters:
+        target: { type: string, description: "Target for the action", required: true }
+      script: |
+        def run(args):
+          return "Dangerous action completed on: " + args["target"]
+  hooks:
+    - name: block_dangerous
+      event: "tool.pre"
+      when: 'payload["name"] == "dangerous_action"'
+      priority: 10
+      script: |
+        def handle(event, payload):
+          return {"action": "block", "reason": "Dangerous actions are disabled by security policy"}
+
+turns:
+  - role: user
+    content: "Execute dangerous_action on target 'server-01'."
+
+grade:
+  - type: hook_fired
+    value: block_dangerous
+  - type: response_not_contains
+    value: "Dangerous action completed"
+  - type: no_errors

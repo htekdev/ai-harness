@@ -1,0 +1,46 @@
+name: "context-state-persistence"
+description: "Tool results persist in ctx.set/ctx.get across subsequent tool calls"
+category: "scripting"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a stateful assistant. When asked to save and recall data:
+    1. FIRST call save_value to store a value
+    2. THEN call recall_value to retrieve it
+    Always use both tools in this order.
+  tools:
+    - name: save_value
+      description: "Save a key-value pair to context"
+      parameters:
+        key: { type: string, description: "Key name", required: true }
+        value: { type: string, description: "Value to store", required: true }
+      script: |
+        def run(args):
+          ctx.set(args["key"], args["value"])
+          return "Saved: " + args["key"] + " = " + args["value"]
+    - name: recall_value
+      description: "Recall a previously saved value"
+      parameters:
+        key: { type: string, description: "Key to look up", required: true }
+      script: |
+        def run(args):
+          val = ctx.get(args["key"])
+          if val == None:
+            return "Not found: " + args["key"]
+          return "Recalled: " + args["key"] + " = " + str(val)
+
+turns:
+  - role: user
+    content: "Save the value 'quantum' with key 'project', then recall the key 'project'."
+
+grade:
+  - type: tool_called
+    tool: save_value
+  - type: tool_called
+    tool: recall_value
+  - type: response_contains
+    value: "quantum"
+  - type: no_errors

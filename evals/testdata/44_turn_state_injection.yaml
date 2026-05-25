@@ -1,0 +1,31 @@
+name: "turn-state-injection"
+description: "Turn state variables are accessible within Starlark tool scripts"
+category: "scripting"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Use the get_turn_info tool when asked about the current turn.
+  tools:
+    - name: get_turn_info
+      description: "Get information about the current conversation turn"
+      parameters: {}
+      script: |
+        def run(args):
+          turn = ctx.get("turn")
+          if turn == None:
+            return "Turn: unknown"
+          return "Current turn number: " + str(turn)
+
+turns:
+  - role: user
+    content: "What turn are we on? Use the get_turn_info tool."
+
+grade:
+  - type: tool_called
+    tool: get_turn_info
+  - type: response_contains
+    value: "1"
+  - type: no_errors

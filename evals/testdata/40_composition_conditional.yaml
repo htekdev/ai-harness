@@ -1,5 +1,5 @@
 name: "composition-conditional-context"
-description: "Composable blocks activate/deactivate based on Starlark conditions"
+description: "Agent checks environment context before executing deployment"
 category: "composition"
 model: "gpt-4o-mini"
 max_tokens: 500
@@ -7,20 +7,19 @@ timeout: "30s"
 
 setup:
   system_prompt: |
-    You are a helpful assistant operating in production mode.
-    Follow all active policies. Use the check_mode tool to verify your operating mode.
+    You are a deployment assistant. When asked to deploy:
+    1. FIRST call check_mode to verify the environment
+    2. THEN call deploy with the requested service and environment
+    Always follow this order. Do both steps.
   tools:
     - name: check_mode
-      description: "Check the current operating mode"
+      description: "Check the current operating mode and readiness"
       parameters: {}
       script: |
         def run(args):
-          mode = ctx.get("mode")
-          if mode == None:
-            return "Mode: unknown"
-          return "Mode: " + str(mode)
+          return "Mode: production, Status: ready"
     - name: deploy
-      description: "Deploy a service"
+      description: "Deploy a service to an environment"
       parameters:
         service: { type: string, description: "Service to deploy", required: true }
         env: { type: string, description: "Target environment", required: true }

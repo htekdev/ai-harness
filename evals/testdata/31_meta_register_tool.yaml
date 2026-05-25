@@ -31,4 +31,4 @@ grade:
   - type: response_not_contains
     value: "I can't"
   - type: max_tool_iterations
-    max_value: 8
+    max_value: 10

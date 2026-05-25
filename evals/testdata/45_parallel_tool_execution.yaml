@@ -1,0 +1,46 @@
+name: "parallel-tool-execution"
+description: "Multiple tools called in parallel within a single turn are all executed"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a data gathering assistant. When asked to check multiple systems,
+    call ALL the check tools in a SINGLE response (parallel tool calls).
+    Do NOT call them one at a time. Call all of them together.
+  tools:
+    - name: check_database
+      description: "Check database health status"
+      parameters: {}
+      script: |
+        def run(args):
+          return "DB: healthy, 42ms latency"
+    - name: check_cache
+      description: "Check cache health status"
+      parameters: {}
+      script: |
+        def run(args):
+          return "Cache: healthy, 2ms latency"
+    - name: check_queue
+      description: "Check message queue status"
+      parameters: {}
+      script: |
+        def run(args):
+          return "Queue: healthy, 15 pending messages"
+
+turns:
+  - role: user
+    content: "Check all three systems at once: database, cache, and queue."
+
+grade:
+  - type: tool_called
+    tool: check_database
+  - type: tool_called
+    tool: check_cache
+  - type: tool_called
+    tool: check_queue
+  - type: max_tool_iterations
+    max_value: 3
+  - type: no_errors

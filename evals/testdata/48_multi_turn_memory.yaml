@@ -1,0 +1,39 @@
+name: "multi-turn-memory"
+description: "Agent remembers facts from earlier turns and uses them in later tool calls"
+category: "multi-turn"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant with a lookup tool. When asked about someone,
+    use the lookup tool with their name as the key. Remember previous results.
+  tools:
+    - name: lookup
+      description: "Look up a person's role by their name"
+      parameters:
+        name: { type: string, description: "Person's name (e.g., Alice, Bob)", required: true }
+      script: |
+        def run(args):
+          data = {"alice": "engineer", "bob": "designer", "carol": "manager"}
+          k = args["name"].lower().strip()
+          if k in data:
+            return args["name"] + " is a " + data[k]
+          return "Not found: " + args["name"]
+
+turns:
+  - role: user
+    content: "Look up Alice's role using the lookup tool."
+  - role: user
+    content: "Now look up Bob. Tell me both Alice's and Bob's roles."
+
+grade:
+  - type: tool_call_count
+    tool: lookup
+    min_value: 2
+  - type: response_contains
+    value: "engineer"
+  - type: response_contains
+    value: "designer"
+  - type: no_errors

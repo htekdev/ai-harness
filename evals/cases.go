@@ -76,8 +76,10 @@ type GradeCriterion struct {
 	Value string `yaml:"value,omitempty"`
 	// ArgsContain checks that tool call arguments contain these key-value pairs.
 	ArgsContain map[string]interface{} `yaml:"args_contain,omitempty"`
-	// Count for tool_call_count grader.
+	// Count for tool_call_count grader (exact match).
 	Count int `yaml:"count,omitempty"`
+	// MinValue for minimum threshold checks.
+	MinValue int `yaml:"min_value,omitempty"`
 	// MaxValue for max_tool_iterations grader.
 	MaxValue int `yaml:"max_value,omitempty"`
 }
@@ -130,6 +132,7 @@ func (g *GradeCriterion) UnmarshalYAML(node *yaml.Node) error {
 		Value       interface{}            `yaml:"value,omitempty"`
 		ArgsContain map[string]interface{} `yaml:"args_contain,omitempty"`
 		Count       int                    `yaml:"count,omitempty"`
+		MinValue    int                    `yaml:"min_value,omitempty"`
 		MaxValue    int                    `yaml:"max_value,omitempty"`
 	}
 
@@ -142,6 +145,7 @@ func (g *GradeCriterion) UnmarshalYAML(node *yaml.Node) error {
 	g.Tool = raw.Tool
 	g.ArgsContain = raw.ArgsContain
 	g.Count = raw.Count
+	g.MinValue = raw.MinValue
 	g.MaxValue = raw.MaxValue
 
 	// Convert value to string regardless of YAML type
