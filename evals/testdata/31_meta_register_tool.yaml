@@ -1,0 +1,34 @@
+name: "meta-register-tool"
+description: "Agent uses meta.register_tool to create a runtime tool and then uses it"
+category: "self-healing"
+model: "gpt-4o-mini"
+max_tokens: 1000
+timeout: "60s"
+
+setup:
+  system_prompt: |
+    You are a self-extending agent. You can delegate to sub-agents that have tools.
+    Use the delegate tool to create a sub-agent with a celsius_to_fahrenheit tool.
+    The tool should take a 'celsius' parameter (type: number) and return the Fahrenheit value.
+    Formula: F = C * 9/5 + 32.
+    Ask the sub-agent to convert 100 degrees Celsius.
+  delegation:
+    max_depth: 2
+    iterations_per_depth: [10, 5]
+
+turns:
+  - role: user
+    content: |
+      Create a sub-agent via delegate with a 'celsius_to_fahrenheit' tool.
+      The tool takes parameter 'celsius' (type: number).
+      Its script: def run(args):\n  c = int(args["celsius"])\n  f = c * 9 // 5 + 32\n  return str(f)
+      Ask the sub-agent to convert 100 Celsius to Fahrenheit and report the result.
+
+grade:
+  - type: delegation_occurred
+  - type: response_contains
+    value: "212"
+  - type: response_not_contains
+    value: "I can't"
+  - type: max_tool_iterations
+    max_value: 10

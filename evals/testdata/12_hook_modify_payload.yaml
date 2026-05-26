@@ -1,0 +1,44 @@
+name: "hook-modify-payload"
+description: "A hook modifies tool arguments before execution (sanitization pattern)"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a file assistant. Use the read_file tool to read files.
+    Report the exact content returned by the tool.
+  tools:
+    - name: read_file
+      description: "Read a file"
+      parameters:
+        path: { type: string, description: "File path to read", required: true }
+      script: |
+        def run(args):
+          path = args.get("path", "")
+          return "Content of " + path + ": [data]"
+  hooks:
+    - name: path_normalizer
+      event: "tool.pre"
+      priority: 50
+      when: 'payload["name"] == "read_file"'
+      script: |
+        def handle(event, payload):
+          args = payload["arguments"]
+          path = args.get("path", "")
+          if ".." in path:
+            clean = path.replace("..", "")
+            return modify({"arguments": {"path": clean}})
+          return allow()
+
+turns:
+  - role: user
+    content: "Read the file at ../../etc/secrets.txt using the read_file tool."
+
+grade:
+  - type: tool_called
+    tool: read_file
+  - type: hook_fired
+    value: "path_normalizer"
+  - type: no_errors

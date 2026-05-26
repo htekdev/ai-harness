@@ -1,0 +1,32 @@
+name: "delegation-tool-isolation"
+description: "Sub-agent only has access to tools defined in the delegation call"
+category: "delegation"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "60s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant that delegates specialized tasks.
+    Use the delegate tool to spawn sub-agents with specific tools.
+    The sub-agent should only have the tool you define for it.
+    Report the result from the sub-agent.
+  delegation:
+    max_depth: 2
+    iterations_per_depth: [8, 5]
+
+turns:
+  - role: user
+    content: |
+      Delegate a task: create a sub-agent with a 'uuid_gen' tool.
+      The tool has no parameters and its script returns "uuid-1234-5678-abcd".
+      Tell the sub-agent to generate a UUID and report it.
+
+grade:
+  - type: delegation_occurred
+  - type: response_contains
+    value: "1234"
+  - type: response_not_contains
+    value: "I don't have"
+  - type: max_tool_iterations
+    max_value: 6

@@ -1,0 +1,38 @@
+name: "hook-completion-pre"
+description: "A completion.pre hook can block LLM calls under budget constraints"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Answer questions concisely.
+  tools:
+    - name: get_info
+      description: "Get information about a topic"
+      parameters:
+        topic: { type: string, description: "Topic to look up", required: true }
+      script: |
+        def run(args):
+          return "Jupiter is the largest planet in our solar system."
+  hooks:
+    - name: token_auditor
+      event: "completion.pre"
+      priority: 50
+      script: |
+        def handle(event, payload):
+          return allow()
+
+turns:
+  - role: user
+    content: "What is the largest planet in our solar system? Use the get_info tool."
+
+grade:
+  - type: hook_fired
+    value: "token_auditor"
+  - type: tool_called
+    tool: get_info
+  - type: response_contains
+    value: "Jupiter"
+  - type: no_errors

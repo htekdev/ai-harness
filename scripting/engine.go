@@ -316,6 +316,37 @@ func interpretHookResult(val starlark.Value) hooks.Result {
 	if hr, ok := val.(*hookResultValue); ok {
 		return hr.result
 	}
+
+	// Also handle dict-style returns: {"action": "block", "reason": "..."}
+	// This is the ergonomic path for scripts that return plain dicts.
+	if dict, ok := val.(*starlark.Dict); ok {
+		actionVal, found, _ := dict.Get(starlark.String("action"))
+		if found {
+			action := ""
+			if s, ok := actionVal.(starlark.String); ok {
+				action = string(s)
+			}
+			reason := ""
+			if reasonVal, found, _ := dict.Get(starlark.String("reason")); found {
+				if s, ok := reasonVal.(starlark.String); ok {
+					reason = string(s)
+				}
+			}
+			switch action {
+			case "block":
+				return hooks.Result{Action: hooks.ActionBlock, Reason: reason}
+			case "modify":
+				payloadVal, found, _ := dict.Get(starlark.String("payload"))
+				if found {
+					return hooks.Result{Action: hooks.ActionModify, Payload: starlarkToGo(payloadVal)}
+				}
+				return hooks.Result{Action: hooks.ActionModify, Payload: starlarkToGo(dict)}
+			default:
+				return hooks.Result{Action: hooks.ActionContinue}
+			}
+		}
+	}
+
 	return hooks.Result{Action: hooks.ActionContinue}
 }
 

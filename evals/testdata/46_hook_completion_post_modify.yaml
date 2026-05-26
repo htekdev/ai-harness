@@ -1,0 +1,40 @@
+name: "hook-completion-post-modify"
+description: "Completion.post hook can observe and pass through completions"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Use the greet tool to generate greetings.
+  tools:
+    - name: greet
+      description: "Generate a greeting for someone"
+      parameters:
+        name: { type: string, description: "Person's name", required: true }
+      script: |
+        def run(args):
+          return "Hello, " + args["name"] + "! Welcome aboard."
+  hooks:
+    - name: audit_completions
+      event: "completion.post"
+      priority: 50
+      script: |
+        def handle(event, payload):
+          return {"action": "continue"}
+
+turns:
+  - role: user
+    content: "Greet 'Alice' using the greet tool."
+
+grade:
+  - type: tool_called
+    tool: greet
+    args_contain:
+      name: "Alice"
+  - type: response_contains
+    value: "Alice"
+  - type: hook_fired
+    value: audit_completions
+  - type: no_errors

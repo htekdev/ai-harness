@@ -70,6 +70,18 @@ func goToStarlark(v any) (starlark.Value, error) {
 		if err := json.Unmarshal(data, &m); err != nil {
 			return starlark.String(string(data)), nil
 		}
+		// Add user-friendly aliases for hook script ergonomics:
+		// tools.Result has JSON field "content" but scripts use "result"
+		if dict, ok := m.(map[string]any); ok {
+			if content, hasContent := dict["content"]; hasContent {
+				if _, hasCallID := dict["call_id"]; hasCallID {
+					// Looks like a tools.Result — add "result" alias
+					if _, hasResult := dict["result"]; !hasResult {
+						dict["result"] = content
+					}
+				}
+			}
+		}
 		return goToStarlark(m)
 	}
 }

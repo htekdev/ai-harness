@@ -22,8 +22,9 @@ const (
 	EventToolPost       Event = "tool.post"
 	EventCompletionPre  Event = "completion.pre"
 	EventCompletionPost Event = "completion.post"
-	EventDelegatePre    Event = "delegate.pre"
-	EventDelegatePost   Event = "delegate.post"
+	EventDelegatePre    Event = "delegation.pre"
+	EventDelegatePost   Event = "delegation.post"
+	EventError          Event = "error"
 )
 
 const CustomEventPrefix = "custom."
@@ -88,6 +89,7 @@ func ValidEvents() []Event {
 		EventCompletionPost,
 		EventDelegatePre,
 		EventDelegatePost,
+		EventError,
 	}
 }
 

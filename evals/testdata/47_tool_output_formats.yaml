@@ -1,0 +1,30 @@
+name: "tool-output-formats"
+description: "Tools returning different output formats (JSON, multiline, numbers) work correctly"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a data retrieval assistant. When asked for statistics, call the get_stats tool
+    and report the total_users count from the JSON response.
+  tools:
+    - name: get_stats
+      description: "Get system statistics as structured data"
+      parameters:
+        system: { type: string, description: "System to query", required: true }
+      script: |
+        def run(args):
+          return '{"system": "' + args["system"] + '", "total_users": 1847, "active_sessions": 23, "uptime_hours": 720}'
+
+turns:
+  - role: user
+    content: "Get the stats for 'main-app' and tell me the total_users count."
+
+grade:
+  - type: tool_called
+    tool: get_stats
+  - type: response_contains
+    value: "1847"
+  - type: no_errors

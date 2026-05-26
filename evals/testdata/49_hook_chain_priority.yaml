@@ -1,0 +1,48 @@
+name: "hook-chain-priority"
+description: "Multiple hooks on same event fire in priority order, first block wins"
+category: "hooks"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a proxy agent. Execute whatever tool the user requests.
+    Security hooks handle governance — just call the tool.
+  tools:
+    - name: send_email
+      description: "Send an email message"
+      parameters:
+        to: { type: string, description: "Recipient email", required: true }
+        body: { type: string, description: "Email body", required: true }
+      script: |
+        def run(args):
+          return "Email sent to " + args["to"]
+  hooks:
+    - name: rate_limiter
+      event: "tool.pre"
+      when: 'payload["name"] == "send_email"'
+      priority: 5
+      script: |
+        def handle(event, payload):
+          return {"action": "block", "reason": "Rate limit exceeded: max 10 emails per hour"}
+    - name: content_filter
+      event: "tool.pre"
+      when: 'payload["name"] == "send_email"'
+      priority: 20
+      script: |
+        def handle(event, payload):
+          return {"action": "continue"}
+
+turns:
+  - role: user
+    content: "Send an email to test@example.com with body 'Hello World'."
+
+grade:
+  - type: hook_fired
+    value: rate_limiter
+  - type: hook_blocked
+    value: rate_limiter
+  - type: response_not_contains
+    value: "Email sent to"
+  - type: no_errors

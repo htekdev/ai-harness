@@ -87,17 +87,61 @@ type TurnResult struct {
 }
 
 func applyHookPayload(payload any, target any) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
 	rv := reflect.ValueOf(target)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("target must be a non-nil pointer")
 	}
+
+	// If payload is a map (from Starlark scripts), normalize and merge onto target.
+	// This preserves fields not specified in the hook payload (like CallID).
+	if m, isMap := payload.(map[string]interface{}); isMap {
+		normalized := normalizeHookPayload(m, target)
+		data, err := json.Marshal(normalized)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(data, target)
+	}
+
+	// If payload is a Go struct (from Go hooks), replace the target entirely.
+	// This supports hooks that return modified copies of the full struct.
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
 	rv.Elem().Set(reflect.Zero(rv.Elem().Type()))
 	return json.Unmarshal(data, target)
+}
+
+// normalizeHookPayload translates user-facing hook payload field names
+// to the internal JSON struct field names expected by the target type.
+// This allows hook scripts to use intuitive names like "result" instead
+// of implementation details like "content".
+func normalizeHookPayload(m map[string]interface{}, target any) any {
+	// For tools.Result targets: translate "result" → "content"
+	if _, isToolResult := target.(*tools.Result); isToolResult {
+		if result, has := m["result"]; has {
+			if _, hasContent := m["content"]; !hasContent {
+				m["content"] = result
+				delete(m, "result")
+			}
+		}
+	}
+
+	// For tools.Call targets: translate "arguments" from map to raw JSON
+	if _, isToolCall := target.(*tools.Call); isToolCall {
+		if args, has := m["arguments"]; has {
+			switch v := args.(type) {
+			case map[string]interface{}:
+				data, err := json.Marshal(v)
+				if err == nil {
+					m["arguments"] = json.RawMessage(data)
+				}
+			}
+		}
+	}
+
+	return m
 }
 
 // Run executes a single turn: takes user input, runs the agent loop until

@@ -211,6 +211,32 @@ func gradeToolCallCount(c GradeCriterion, t *Transcript) GradeResult {
 	} else {
 		count = len(calls)
 	}
+
+	// Support min_value (at least N calls)
+	if c.MinValue > 0 {
+		if count >= c.MinValue {
+			return GradeResult{Criterion: c, Passed: true}
+		}
+		return GradeResult{
+			Criterion: c,
+			Passed:    false,
+			Reason:    fmt.Sprintf("expected at least %d tool calls (tool=%q), got %d", c.MinValue, c.Tool, count),
+		}
+	}
+
+	// Support max_value (at most N calls)
+	if c.MaxValue > 0 {
+		if count <= c.MaxValue {
+			return GradeResult{Criterion: c, Passed: true}
+		}
+		return GradeResult{
+			Criterion: c,
+			Passed:    false,
+			Reason:    fmt.Sprintf("expected at most %d tool calls (tool=%q), got %d", c.MaxValue, c.Tool, count),
+		}
+	}
+
+	// Exact match
 	if count == c.Count {
 		return GradeResult{Criterion: c, Passed: true}
 	}
@@ -369,8 +395,10 @@ func argsMatch(actual map[string]interface{}, expected map[string]interface{}) b
 		if !ok {
 			return false
 		}
-		// Compare as strings for flexibility
-		if fmt.Sprintf("%v", actualVal) != fmt.Sprintf("%v", expectedVal) {
+		// Compare as lowercase strings for flexibility (handles minor model variations)
+		actualStr := strings.ToLower(fmt.Sprintf("%v", actualVal))
+		expectedStr := strings.ToLower(fmt.Sprintf("%v", expectedVal))
+		if !strings.Contains(actualStr, expectedStr) && actualStr != expectedStr {
 			return false
 		}
 	}

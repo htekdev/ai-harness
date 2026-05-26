@@ -1,0 +1,50 @@
+name: "tool-string-operations"
+description: "Tool scripts use string built-in functions correctly"
+category: "scripting"
+model: "gpt-4o-mini"
+max_tokens: 500
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a text processing assistant. Use the available tools for text manipulation.
+  tools:
+    - name: format_name
+      description: "Format a name to title case and trim whitespace"
+      parameters:
+        name: { type: string, description: "Name to format", required: true }
+      script: |
+        def run(args):
+          name = args["name"]
+          parts = name.split()
+          result = []
+          for part in parts:
+            if len(part) > 0:
+              result.append(part[0].upper() + part[1:].lower())
+          return " ".join(result)
+    - name: extract_domain
+      description: "Extract domain from an email address"
+      parameters:
+        email: { type: string, description: "Email address", required: true }
+      script: |
+        def run(args):
+          email = args["email"]
+          parts = email.split("@")
+          if len(parts) != 2:
+            return "error: invalid email"
+          return parts[1]
+
+turns:
+  - role: user
+    content: "Format the name '  JOHN   DOE  ' using format_name, then extract the domain from 'john@example.com' using extract_domain."
+
+grade:
+  - type: tool_called
+    tool: format_name
+  - type: tool_called
+    tool: extract_domain
+  - type: response_contains
+    value: "John Doe"
+  - type: response_contains
+    value: "example.com"
+  - type: no_errors

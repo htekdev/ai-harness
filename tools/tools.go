@@ -59,6 +59,7 @@ type Call struct {
 // Result represents the output of a tool execution.
 type Result struct {
 	CallID  string `json:"call_id"`
+	Name    string `json:"name"`
 	Content string `json:"content"`
 	IsError bool   `json:"is_error"`
 }
@@ -167,6 +168,7 @@ func (r *Registry) Execute(ctx context.Context, call Call) Result {
 	if !exists {
 		return Result{
 			CallID:  call.ID,
+			Name:    call.Name,
 			Content: fmt.Sprintf("tool %q not found", call.Name),
 			IsError: true,
 		}
@@ -176,6 +178,7 @@ func (r *Registry) Execute(ctx context.Context, call Call) Result {
 	if err != nil {
 		return Result{
 			CallID:  call.ID,
+			Name:    call.Name,
 			Content: fmt.Sprintf("tool error: %v", err),
 			IsError: true,
 		}
@@ -183,6 +186,7 @@ func (r *Registry) Execute(ctx context.Context, call Call) Result {
 
 	return Result{
 		CallID:  call.ID,
+		Name:    call.Name,
 		Content: output,
 		IsError: false,
 	}

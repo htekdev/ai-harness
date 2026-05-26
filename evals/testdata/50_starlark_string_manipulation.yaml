@@ -1,0 +1,42 @@
+name: "starlark-string-manipulation"
+description: "Tool scripts perform complex string operations and return structured results"
+category: "scripting"
+model: "gpt-4o-mini"
+max_tokens: 400
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a text processing assistant. Use the transform tool to process text as requested.
+  tools:
+    - name: transform
+      description: "Transform text using various operations"
+      parameters:
+        text: { type: string, description: "Input text", required: true }
+        operation: { type: string, description: "Operation: reverse, uppercase, word_count", required: true }
+      script: |
+        def run(args):
+          text = args["text"]
+          op = args["operation"]
+          if op == "reverse":
+            reversed_text = ""
+            for i in range(len(text) - 1, -1, -1):
+              reversed_text += text[i]
+            return reversed_text
+          elif op == "uppercase":
+            return text.upper()
+          elif op == "word_count":
+            words = text.split(" ")
+            return "Word count: " + str(len(words))
+          return "Unknown operation: " + op
+
+turns:
+  - role: user
+    content: "Transform the text 'hello world' using the 'uppercase' operation."
+
+grade:
+  - type: tool_called
+    tool: transform
+  - type: response_contains
+    value: "HELLO WORLD"
+  - type: no_errors

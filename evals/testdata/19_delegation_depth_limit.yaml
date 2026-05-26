@@ -1,0 +1,38 @@
+name: "delegation-depth-limit"
+description: "Delegation respects max_depth; deep delegation attempts are bounded"
+category: "delegation"
+model: "gpt-4o-mini"
+max_tokens: 1000
+timeout: "60s"
+
+setup:
+  system_prompt: |
+    You are a task delegation assistant. You MUST use the delegate tool EXACTLY ONCE.
+    When you call delegate, provide:
+    - task: "Use the compute tool with x=10 and report the numeric result"
+    - tools: an array with ONE tool definition:
+      - name: "compute"
+      - description: "Computes x + 1"
+      - parameters: {"x": {"type": "number", "description": "Input number", "required": true}}
+      - script: "def run(args):\n  return str(int(args[\"x\"]) + 1)"
+
+    After receiving the delegation result, report the final number to the user.
+    Do NOT call delegate more than once. One delegation is all you need.
+  delegation:
+    max_depth: 1
+    iterations_per_depth: [5, 3]
+
+turns:
+  - role: user
+    content: |
+      Delegate a computation task: create a sub-agent with a 'compute' tool that adds 1 to its input.
+      Have it compute x=10. Report the final answer.
+
+grade:
+  - type: delegation_occurred
+  - type: delegation_depth
+    max_value: 1
+  - type: response_contains
+    value: "11"
+  - type: max_tool_iterations
+    max_value: 6

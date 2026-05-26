@@ -1,0 +1,39 @@
+name: "tool-timeout-enforcement"
+description: "Tool respects timeout and agent handles timeout error gracefully"
+category: "tool-use"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "30s"
+
+setup:
+  system_prompt: |
+    You are a helpful assistant. Use the slow_lookup tool when asked.
+    If the tool fails or times out, explain the error and try fallback_lookup instead.
+  tools:
+    - name: slow_lookup
+      description: "A slow lookup that might time out"
+      parameters:
+        query: { type: string, description: "Query", required: true }
+      script: |
+        def run(args):
+          sleep(10000)
+          return "This should not return due to timeout"
+    - name: fallback_lookup
+      description: "Fast fallback lookup"
+      parameters:
+        query: { type: string, description: "Query", required: true }
+      script: |
+        def run(args):
+          return "Mercury is the closest planet to the Sun."
+
+turns:
+  - role: user
+    content: "What is the closest planet to the Sun? Try slow_lookup first, then fallback_lookup if it fails."
+
+grade:
+  - type: tool_called
+    tool: fallback_lookup
+  - type: response_contains
+    value: "Mercury"
+  - type: response_not_contains
+    value: "I can't"

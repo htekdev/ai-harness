@@ -1,0 +1,44 @@
+name: "multi-turn-tool-evolution"
+description: "Agent adapts tool usage strategy across turns based on results"
+category: "context"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "50s"
+
+setup:
+  system_prompt: |
+    You are a research assistant. Use search_v1 first. If it returns "No results",
+    try search_v2 instead. Report what you find.
+  tools:
+    - name: search_v1
+      description: "Primary search engine (limited coverage)"
+      parameters:
+        query: { type: string, description: "Search query", required: true }
+      script: |
+        def run(args):
+          q = args["query"]
+          if "quantum" in q.lower():
+            return "No results found."
+          return "Found: " + q + " is well documented."
+    - name: search_v2
+      description: "Secondary search engine (broader coverage)"
+      parameters:
+        query: { type: string, description: "Search query", required: true }
+      script: |
+        def run(args):
+          return "Found via v2: Quantum computing uses qubits instead of classical bits."
+
+turns:
+  - role: user
+    content: "Search for 'python programming' using search_v1."
+  - role: user
+    content: "Now search for 'quantum computing basics' — try search_v1 first, then search_v2 if no results."
+
+grade:
+  - type: tool_called
+    tool: search_v1
+  - type: tool_called
+    tool: search_v2
+  - type: response_contains
+    value: "qubits"
+  - type: no_errors
