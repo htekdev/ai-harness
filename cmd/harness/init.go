@@ -37,29 +37,162 @@ You are a helpful AI assistant powered by the AI Harness framework.
 - Delegate complex multi-step tasks to specialized agents
 `
 
-var toolTemplate = `---
-name: example_tool
-description: An example tool — replace with your own
-parameters:
-  input:
-    type: string
-    description: The input to process
-    required: true
+var defaultToolsTemplate = `---
+name: default-tools
+type: plugin
+version: "1.0.0"
+description: Default file system tools for working with files and directories
+author: AI Harness
+tags: [filesystem, core]
 ---
 
-` + "```starlark" + `
-result = "Processed: " + args["input"]
+# Default Tools
+
+Core file system tools that work out of the box.
+
+## Tools
+
+` + "```yaml" + `
+- name: read_file
+  description: "Read the contents of a file"
+  parameters:
+    path:
+      type: string
+      required: true
+      description: "Path to the file to read"
+  timeout_ms: 5000
+  script: |
+    def run(args):
+        path = args.get("path", "")
+        if not path:
+            return {"error": "Path is required"}
+        if not fs.exists(path):
+            return {"error": "File not found: " + path}
+        content = fs.read(path)
+        return {
+            "success": True,
+            "path": path,
+            "content": content
+        }
+
+- name: write_file
+  description: "Write content to a file"
+  parameters:
+    path:
+      type: string
+      required: true
+      description: "Path to the file to write"
+    content:
+      type: string
+      required: true
+      description: "Content to write"
+  timeout_ms: 5000
+  script: |
+    def run(args):
+        path = args.get("path", "")
+        content = args.get("content", "")
+        if not path:
+            return {"error": "Path is required"}
+        fs.write(path, content)
+        return {
+            "success": True,
+            "path": path,
+            "bytes_written": len(content)
+        }
+
+- name: list_files
+  description: "List files in a directory"
+  parameters:
+    path:
+      type: string
+      required: false
+      description: "Directory path (defaults to current directory)"
+  timeout_ms: 5000
+  script: |
+    def run(args):
+        path = args.get("path", ".")
+        if not fs.exists(path):
+            return {"error": "Directory not found: " + path}
+        files = fs.list(path)
+        return {
+            "success": True,
+            "path": path,
+            "files": files
+        }
+
+- name: get_current_folder
+  description: "Get the absolute path of the current working directory"
+  timeout_ms: 1000
+  script: |
+    def run(args):
+        result = exec.run("pwd", [])
+        if result["exit_code"] != 0:
+            return {"error": "Failed to get current directory"}
+        cwd = string.trim(result["stdout"])
+        ctx.set("current_folder", cwd)
+        return {
+            "success": True,
+            "folder": cwd
+        }
 ` + "```" + `
 `
 
-var hookTemplate = `---
-handler: example_hook
-event: on_turn_start
-priority: 100
+var defaultHooksTemplate = `---
+name: default-hooks
+type: plugin
+version: "1.0.0"
+description: Default safety hooks for command and secret protection
+author: AI Harness
+tags: [security, safety, governance]
 ---
 
-` + "```starlark" + `
-log("Turn started")
+# Default Hooks
+
+Safety hooks that protect against dangerous operations.
+
+## Hooks
+
+` + "```yaml" + `
+- event: tool.pre
+  handler: block_dangerous_commands
+  priority: 10
+  when: 'tool_name == "exec"'
+  script: |
+    def handle(event, payload):
+        args = payload.get("arguments", {})
+        cmd = args.get("cmd", "")
+        
+        # Dangerous patterns
+        dangerous = [
+            "rm -rf",
+            "dd if=",
+            "> /dev/",
+            "mkfs",
+            "format c:",
+        ]
+        
+        for pattern in dangerous:
+            if pattern in cmd:
+                return block("Refusing dangerous command: " + cmd)
+        
+        return allow()
+
+- event: tool.post
+  handler: detect_secrets
+  priority: 5
+  script: |
+    def handle(event, payload):
+        result = payload.get("result", "")
+        if not isinstance(result, str):
+            result = json.encode(result)
+        
+        # Secret patterns
+        if "-----BEGIN PRIVATE KEY-----" in result:
+            return block("Output contains private key")
+        if "api_key=" in result or "password=" in result:
+            return block("Output may contain secrets")
+        
+        return allow()
 ` + "```" + `
 `
 
@@ -119,14 +252,14 @@ Creates:
 		return fmt.Errorf("writing harness.md: %w", err)
 	}
 
-	// Write example tool
-	if err := os.WriteFile(".harness/tools/example.md", []byte(toolTemplate), 0644); err != nil {
-		return fmt.Errorf("writing example tool: %w", err)
+	// Write default tools
+	if err := os.WriteFile(".harness/tools/default-tools.md", []byte(defaultToolsTemplate), 0644); err != nil {
+		return fmt.Errorf("writing default tools: %w", err)
 	}
 
-	// Write example hook
-	if err := os.WriteFile(".harness/hooks/example.md", []byte(hookTemplate), 0644); err != nil {
-		return fmt.Errorf("writing example hook: %w", err)
+	// Write default hooks
+	if err := os.WriteFile(".harness/hooks/default-hooks.md", []byte(defaultHooksTemplate), 0644); err != nil {
+		return fmt.Errorf("writing default hooks: %w", err)
 	}
 
 	fmt.Printf("✅ Initialized harness project: %s\n\n", name)
