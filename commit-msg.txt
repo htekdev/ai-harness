@@ -1,0 +1,20 @@
+feat: per-turn artifact evaluation engine (#7)
+
+Add EvaluateConditions to Composer so artifact conditions are re-evaluated
+at the start of every turn against fresh turn state, enabling turn-aware
+conditions like ctx.get("turn") > 3 across the session lifecycle.
+
+Changes:
+- scripting: add SetTurnState/TurnStateValues public accessors
+- artifact: add Active bool field (default true at Register)
+- artifact/registry: add UpdateConditions(evalFn) under write lock
+- artifact/composer: add EvaluateConditions(ctx) + ErrNilTurnContext
+- agent: add Composer to Options/Agent, wire EvaluateConditions before
+  EventTurnStart, track turnNumber per-session
+
+Tests: 7 unit tests in composer_test.go, 2 integration tests in agent_test.go,
+all pass with -race. Zero regressions.
+
+Phase 1 only: no caching, no delta tracking, no EventConditionChanged.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
