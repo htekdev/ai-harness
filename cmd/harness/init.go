@@ -54,7 +54,7 @@ Creates:
 		filepath.Join(filepath.Dir(os.Args[0]), "core"),
 		"core",
 	}
-	
+
 	var coreDir string
 	for _, dir := range coreDirs {
 		if _, err := os.Stat(dir); err == nil {
@@ -62,7 +62,7 @@ Creates:
 			break
 		}
 	}
-	
+
 	if coreDir == "" {
 		return fmt.Errorf("core harness directory not found — tried: %v", coreDirs)
 	}
@@ -78,10 +78,10 @@ Creates:
 	if err != nil {
 		return fmt.Errorf("reading core harness.md: %w", err)
 	}
-	
+
 	// Replace placeholder with project name
 	customized := strings.Replace(string(content), "AI Assistant", name+" Agent", 1)
-	
+
 	if err := os.WriteFile("harness.md", []byte(customized), 0644); err != nil {
 		return fmt.Errorf("writing harness.md: %w", err)
 	}
