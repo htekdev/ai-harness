@@ -846,12 +846,12 @@ More complex workflows should be expressed by composing these primitives instead
 
 ### Loop protection
 
-Triggers must never recurse indefinitely. The runtime should enforce all of the following:
+The system must prevent triggers from recursing indefinitely. The runtime should enforce all of the following:
 
 1. **Per-event idempotency** — a rule executes at most once for a given `(trigger_name, event_id)`.
 2. **Causation tracking** — emitted events and wake-up records carry `causation_id`, `origin_event_id`, and `trigger_name`.
 3. **Depth limit** — every trigger-produced event increments `trigger_depth`; execution stops at a configured cap.
-4. **Ancestry check** — if a rule name already appears in the current causation chain, do not execute it again.
+4. **Ancestry check** — if a rule name already appears in the current causation chain, do not execute it again (for example, `followup-on-due` must not re-fire on an event already descended from `followup-on-due`).
 5. **Wake-up dedupe** — `create_wakeup` must deduplicate on `(runtime, dedupe_key)` or an equivalent durable uniqueness key.
 
 These rules allow safe fan-out while preventing self-triggering loops and duplicate wake-ups.
