@@ -140,6 +140,23 @@ func TestValidateModel(t *testing.T) {
 	}
 }
 
+func TestValidateNonModelRejectsModels(t *testing.T) {
+	a := &Artifact{
+		Metadata: Metadata{
+			Name:        "plugin-with-models",
+			Type:        TypePlugin,
+			Description: "invalid plugin",
+		},
+		Models: []ModelDef{
+			{Name: "gpt-4o", Provider: "openai", MaxTokens: 4096},
+		},
+	}
+
+	if err := Validate(a); err == nil {
+		t.Error("non-model artifact with models should fail")
+	}
+}
+
 func TestValidateHarness(t *testing.T) {
 	a := &Artifact{
 		Metadata: Metadata{

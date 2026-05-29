@@ -67,6 +67,10 @@ func validateCommon(a *Artifact) []string {
 		issues = append(issues, fmt.Sprintf("type %q is not valid", a.Metadata.Type))
 	}
 
+	if a.Metadata.Type != TypeModel && len(a.Models) > 0 {
+		issues = append(issues, fmt.Sprintf("%s artifact should not define models", a.Metadata.Type))
+	}
+
 	// Version is optional but must be semver-like if present
 	if a.Metadata.Version != "" {
 		if !isValidVersion(a.Metadata.Version) {

@@ -191,10 +191,20 @@ type HookDef struct {
 
 // ModelDef defines a model/provider configuration in a model artifact.
 type ModelDef struct {
-	Name        string  `yaml:"name"`
-	Provider    string  `yaml:"provider"`
-	MaxTokens   int     `yaml:"max_tokens"`
-	Temperature float64 `yaml:"temperature"`
-	APIKeyEnv   string  `yaml:"api_key_env"`
-	BaseURL     string  `yaml:"base_url,omitempty"`
+	Name         string            `yaml:"name"`
+	Provider     string            `yaml:"provider"`
+	MaxTokens    int               `yaml:"max_tokens"`
+	Temperature  float64           `yaml:"temperature"`
+	APIKeyEnv    string            `yaml:"api_key_env"`
+	BaseURL      string            `yaml:"base_url,omitempty"`
+	Capabilities ModelCapabilities `yaml:"capabilities,omitempty"`
+}
+
+// ModelCapabilities describes provider/model features declaratively.
+// These flags document what a model supports without requiring a core rewrite.
+type ModelCapabilities struct {
+	Streaming   bool `yaml:"streaming,omitempty"`
+	ToolCalling bool `yaml:"tool_calling,omitempty"`
+	Vision      bool `yaml:"vision,omitempty"`
+	JSONMode    bool `yaml:"json_mode,omitempty"`
 }
