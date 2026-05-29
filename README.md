@@ -716,7 +716,7 @@ triggers:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `stream` | string | no | Durable event stream name; defaults to `events` |
+| `stream` | string | no | Durable event stream name; omit it to use the default `events` stream |
 | `types` | []string | yes | One or more event types that should fire the rule |
 | `when` | string | no | Optional predicate over `event` and `payload`; trigger fires only when truthy |
 
@@ -851,7 +851,7 @@ The system must prevent triggers from recursing indefinitely. The runtime should
 1. **Per-event idempotency** — a rule executes at most once for a given `(trigger_name, event_id)`.
 2. **Causation tracking** — emitted events and wake-up records carry `causation_id`, `origin_event_id`, and `trigger_name`.
 3. **Depth limit** — every trigger-produced event increments `trigger_depth`; execution stops at a configured cap.
-4. **Ancestry check** — if a rule name already appears in the current causation chain, do not execute it again (e.g., `followup-on-due` must not re-fire on an event already descended from `followup-on-due`).
+4. **Ancestry check** — if a rule name already appears in the current causation chain assembled from carried `trigger_name`, `causation_id`, and `origin_event_id` metadata, do not execute it again (e.g., `followup-on-due` must not re-fire on an event already descended from `followup-on-due`).
 5. **Wake-up dedupe** — `create_wakeup` must deduplicate on `(runtime, dedupe_key)` or an equivalent durable uniqueness key.
 
 These rules allow safe fan-out while preventing self-triggering loops and duplicate wake-ups.
@@ -860,7 +860,7 @@ These rules allow safe fan-out while preventing self-triggering loops and duplic
 
 | Use | Hooks | Triggers |
 | --- | --- | --- |
-| Timing | Inline, during the current agent/tool/completion lifecycle | After an event is durably recorded |
+| Timing | Inline, while the current agent/tool/completion lifecycle is executing | After an event is durably recorded |
 | Primary job | Block, rewrite, or observe in-flight work | Start follow-up work or emit more events |
 | Persistence | Ephemeral/in-process | Durable/event-driven |
 | Best for | Governance, validation, prompt/tool rewrites | Long-running orchestration, adapters, scheduling, runtime wake-ups |
