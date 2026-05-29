@@ -67,6 +67,12 @@ examples/
 ├── context/               ← Dynamic context examples
 │   ├── pr-mode.md         ← Conditional PR review context
 │   └── time-based.md      ← Business hours vs quiet mode
+├── reference/             ← Reference runtime mappings
+│   ├── copilot-cli.md     ← Copilot CLI concept → artifact mapping + gaps
+│   └── copilot-cli/       ← Replayable reference harness artifacts
+│       ├── identity.md
+│       └── plugins/
+│           └── copilot-runtime.md
 ├── policies/              ← Policy configuration examples
 │   ├── model-config.md    ← Model settings artifact
 │   └── delegation.md      ← Sub-agent rules
