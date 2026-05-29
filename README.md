@@ -33,6 +33,34 @@ Most agent frameworks force a choice:
 - **Portable** — Works with GitHub Copilot, OpenAI, or any compatible chat completions API.
 - **Testable** — Built-in eval framework validates agent behavior against real models in CI.
 
+### Differentiation from OpenHarness (Category-Level)
+
+OpenHarness and AI Harness both operate in the **agent harness / agent infrastructure** category.
+
+Where AI Harness is intentionally different:
+
+- **Minimal core as a product constraint** — optimize for a small, inspectable runtime over broad platform surface area.
+- **Composable artifacts as primary interface** — behavior is centered on versioned Markdown artifacts (`harness.md` + `.harness/**`), designed for PR review.
+- **Governance in the execution path** — hooks, policies, approval gates, and delegation limits are first-class controls, not add-ons.
+
+Language we avoid:
+
+- “OpenHarness but in Go”
+- “OpenHarness clone”
+- “Drop-in replacement for OpenHarness”
+
+Preferred framing:
+
+- “A minimal, governance-first harness for coding agents”
+- “Harness as code: composable artifacts + explicit operational controls”
+- “Built for teams that want predictable, reviewable agent behavior”
+
+Messaging framework (reuse for docs/launch copy):
+
+- **One-liner:** “AI Harness is a minimal, governance-first runtime for coding agents, where behavior lives in composable, versioned artifacts.”
+- **Three pillars:** Minimal core • Composable artifacts • Governance by default
+- **30-second pitch:** “AI Harness helps teams move agent behavior into files they can review, validate, and govern. Instead of a large opaque framework, it provides a compact runtime with explicit lifecycle controls.”
+
 ### Core Philosophy
 
 > Make the right thing to do the easy thing to do.
