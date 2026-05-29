@@ -24,6 +24,25 @@ Most agent frameworks force a choice:
 
 **Harness as Code** takes a different approach: your `harness.md` file IS the control plane for an AI agent — governance, tools, delegation limits, and system prompt in one reviewable artifact.
 
+## Naming and terminology direction
+
+To avoid blocking architecture work while product naming evolves:
+
+- Keep **AI Harness / Harness as Code** as the umbrella product surface.
+- Keep internal schema language descriptive and artifact-first: **artifacts**, **definitions**, **events**, **triggers**, **watchers**, **schedules**, **runtimes**.
+- Do not position **extensions** as the primary abstraction in new copy.
+
+### Alternatives to "extensions"
+
+- capability artifacts (recommended default)
+- definition bundles
+- runtime modules
+- plugin artifacts
+
+### Current recommendation
+
+Use **artifacts/definitions** as the core noun set now, and treat any `extension` wording as compatibility terminology rather than the long-term conceptual center.
+
 ## What Makes It Different
 
 - **Markdown-first** — `harness.md` (YAML frontmatter + body as system prompt) defines your agent declaratively. `.harness/` directory adds tools, hooks, and sub-agents as individual `.md` files.
