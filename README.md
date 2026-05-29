@@ -56,6 +56,41 @@ The harness enforces safety through architecture:
 | RBAC / least privilege | Tool registry access control |
 | Observability | Agent event streams and metrics |
 
+## Event Store Primitive
+
+`observe.Store` is an append-only event store with replay and in-process subscriptions.
+
+Canonical event envelope:
+
+```json
+{
+  "id": "evt_1",
+  "stream": "session",
+  "type": "tool.post",
+  "source": "agent/default",
+  "time": "2026-01-01T00:00:00Z",
+  "sequence": 1,
+  "data": { "tool": "test_runner", "exit_code": 0 },
+  "meta": { "trace_id": "abc123" }
+}
+```
+
+Replay semantics:
+- `Replay(stream, from, limit)` is deterministic and sequence-ordered
+- `from` is inclusive (`sequence >= from`)
+- `from <= 0` means replay from the first event
+- `stream == ""` means replay across all streams
+
+Subscription semantics:
+- `Subscribe(stream, buffer)` is in-process and non-blocking
+- `stream == ""` subscribes to all streams
+- Backpressure rule: if subscriber buffer is full, the new event is dropped for that subscriber
+
+Starter persistence and upgrade path:
+- `observe.NewStore()` is in-memory
+- `observe.NewFileStore(path)` persists append-only JSONL and replays from disk on startup
+- Start with JSONL for local/dev and single-node workflows, then move to a durable log database while preserving the event envelope and replay contract
+
 ## Architecture
 
 ```
