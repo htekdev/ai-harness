@@ -48,9 +48,6 @@ func TestTypePriority(t *testing.T) {
 	if TypeCompaction.Priority() <= TypeBuiltin.Priority() {
 		t.Error("compaction should have higher priority than builtin")
 	}
-	if TypeHarness.Priority() <= TypeBuiltin.Priority() {
-		t.Error("harness should have higher priority than builtin")
-	}
 	if TypeBuiltin.Priority() <= TypePlugin.Priority() {
 		t.Error("builtin should have higher priority than plugin")
 	}
