@@ -46,7 +46,7 @@ type RuntimeChange struct {
 	SessionID     string
 	Turn          int
 	HookEvent     string
-	ContextTokens int
+	ContextTokens *int
 }
 
 // ArtifactState is the projected artifact state.
@@ -114,7 +114,7 @@ func (l *EventLog) Append(evt Event) (Event, error) {
 		if _, ok := l.events[evt.ParentID]; !ok {
 			return Event{}, fmt.Errorf("parent event %q not found", evt.ParentID)
 		}
-	} else if head, ok := l.heads[evt.Branch]; ok && head != "" {
+	} else if head, ok := l.heads[evt.Branch]; ok {
 		evt.ParentID = head
 	}
 
@@ -149,7 +149,7 @@ func (l *EventLog) Replay(branch string) ([]Event, error) {
 		branch = "main"
 	}
 	head, ok := l.heads[branch]
-	if !ok || head == "" {
+	if !ok {
 		return nil, fmt.Errorf("branch %q has no events", branch)
 	}
 	return l.replayFromHeadLocked(head), nil
@@ -165,19 +165,18 @@ func (l *EventLog) Rebuild(branch string) (State, error) {
 }
 
 func (l *EventLog) replayFromHeadLocked(head string) []Event {
-	reversed := make([]Event, 0)
+	eventsFromHead := make([]Event, 0)
 	current := head
 	for current != "" {
 		evt := l.events[current]
-		reversed = append(reversed, evt)
+		eventsFromHead = append(eventsFromHead, evt)
 		current = evt.ParentID
 	}
 
-	replayed := make([]Event, 0, len(reversed))
-	for i := len(reversed) - 1; i >= 0; i-- {
-		replayed = append(replayed, reversed[i])
+	for i, j := 0, len(eventsFromHead)-1; i < j; i, j = i+1, j-1 {
+		eventsFromHead[i], eventsFromHead[j] = eventsFromHead[j], eventsFromHead[i]
 	}
-	return replayed
+	return eventsFromHead
 }
 
 // Rebuild projects state by replaying the provided events in order.
@@ -218,8 +217,8 @@ func Rebuild(events []Event) State {
 			if evt.Runtime.HookEvent != "" {
 				state.Runtime.LastHookEvent = evt.Runtime.HookEvent
 			}
-			if evt.Runtime.ContextTokens > 0 {
-				state.Runtime.ContextTokens = evt.Runtime.ContextTokens
+			if evt.Runtime.ContextTokens != nil {
+				state.Runtime.ContextTokens = *evt.Runtime.ContextTokens
 			}
 			state.Runtime.UpdatedAt = evt.Timestamp
 		}

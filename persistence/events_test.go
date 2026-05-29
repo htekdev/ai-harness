@@ -47,8 +47,14 @@ func TestEventLogRebuildMainBranch(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 
-	if state.Runtime.SessionID != "s1" || state.Runtime.Turn != 1 || state.Runtime.LastHookEvent != "tool.pre" {
-		t.Fatalf("unexpected runtime state: %+v", state.Runtime)
+	if state.Runtime.SessionID != "s1" {
+		t.Fatalf("runtime session_id = %q, want %q", state.Runtime.SessionID, "s1")
+	}
+	if state.Runtime.Turn != 1 {
+		t.Fatalf("runtime turn = %d, want %d", state.Runtime.Turn, 1)
+	}
+	if state.Runtime.LastHookEvent != "tool.pre" {
+		t.Fatalf("runtime last_hook_event = %q, want %q", state.Runtime.LastHookEvent, "tool.pre")
 	}
 	if _, ok := state.Artifacts["base"]; !ok {
 		t.Fatalf("expected artifact to exist")
