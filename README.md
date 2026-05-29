@@ -56,6 +56,24 @@ The harness enforces safety through architecture:
 | RBAC / least privilege | Tool registry access control |
 | Observability | Agent event streams and metrics |
 
+## Harness Levels (Progressive Sophistication)
+
+Harness levels are an adoption model for onboarding and positioning.  
+They answer: *"How much governance depth is applied to this agent system right now?"*
+
+- **Primary axis:** governance depth
+- **Secondary effects:** capability breadth and team maturity
+- **Goal:** let teams start simple, then add controls incrementally without re-platforming
+
+| Level | Intent | Differentiator | Typical user stage | Shipped in repo today | Planned evolution |
+|---|---|---|---|---|---|
+| **L1 — Prompt + Basic Tools** | Get productive quickly with minimal setup | Single harness identity + direct tool use | Individual prototyping | `harness.md`, core tool handlers, `harness run`, `harness validate` | Better starter templates and guided bootstrap |
+| **L2 — Structured Capabilities** | Decompose work into reusable artifacts | File-based `.harness/` tools/hooks/agents + composition | Team adoption | Directory loader, artifact composition, `harness inspect`, examples library | Richer capability packs and opinionated bundles |
+| **L3 — Governed Autonomy** | Enforce safe default behavior as architecture | Lifecycle hooks, policy-style blocking, bounded delegation | Production hardening | Hook system (`*.pre`/`*.post`), command/path guard patterns, delegation depth + retry limits | More policy packs, stronger default guardrails, approval-gate presets |
+| **L4 — Observable, Adaptive Operations** | Operate agent systems as a managed platform | Runtime signals drive governance and rollout decisions | Org-scale operations | Event streams/metrics + eval framework foundations | Maturity scoring, progressive rollout controls, roadmap-level operational dashboards |
+
+This model is intentionally progressive: teams can adopt L1 immediately, harden with L2/L3, then scale with L4.
+
 ## Architecture
 
 ```
