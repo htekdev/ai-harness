@@ -24,6 +24,7 @@ tools:
           timeout = args.get("timeout_ms", 30000)
           if not command:
               return {"error": "command is required"}
+          # exec.run returns {"stdout": "...", "stderr": "...", "exit_code": N}
           return exec.run("bash", ["-lc", command], timeout)
 
   - name: load_context_bundle
@@ -99,6 +100,7 @@ tools:
     script: |
       def run(args):
           bg_prefix = "bg:"
+          # uuid.v4 and cache.* are harness built-ins used for cooperative task state.
           task_id = uuid.v4()
           record = {
               "id": task_id,
