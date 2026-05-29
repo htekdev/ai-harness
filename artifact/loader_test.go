@@ -265,3 +265,46 @@ Plugin body.
 		t.Errorf("expected my-plugin first, got %q", all[0].Metadata.Name)
 	}
 }
+
+func TestParseCompactionArtifact(t *testing.T) {
+	input := []byte(`---
+name: code-review-compaction
+type: compaction
+version: "1.0.0"
+triggers:
+  - token_threshold: 0.80
+    strategy: truncate
+  - token_threshold: 0.90
+    strategy: summarize
+  - turn_threshold: 30
+    strategy: checkpoint
+retention:
+  always_keep: [system_prompt, active_artifacts]
+  summarize: [tool_results]
+  drop: [exploratory_logs]
+strategies:
+  truncate:
+    description: Trim noisy history
+  summarize:
+    prompt: Preserve file paths and diffs
+---
+
+Compaction rules for code review mode.
+`)
+	a, err := Parse(input, "test/compaction.md")
+	if err != nil {
+		t.Fatalf("Parse compaction failed: %v", err)
+	}
+	if a.Metadata.Type != TypeCompaction {
+		t.Fatalf("expected compaction type, got %s", a.Metadata.Type)
+	}
+	if len(a.Compaction.Triggers) != 3 {
+		t.Fatalf("expected 3 compaction triggers, got %d", len(a.Compaction.Triggers))
+	}
+	if a.Compaction.Retention.Drop[0] != "exploratory_logs" {
+		t.Fatalf("unexpected retention drop: %+v", a.Compaction.Retention.Drop)
+	}
+	if a.Compaction.Strategies["summarize"].Prompt == "" {
+		t.Fatal("expected summarize strategy prompt")
+	}
+}

@@ -199,3 +199,38 @@ func TestValidateDuplicateTools(t *testing.T) {
 		t.Error("duplicate tool names should fail validation")
 	}
 }
+
+func TestValidateCompaction(t *testing.T) {
+	a := &Artifact{
+		Metadata: Metadata{
+			Name: "review-compaction",
+			Type: TypeCompaction,
+		},
+		Compaction: CompactionDef{
+			Triggers: []CompactionTrigger{
+				{TokenThreshold: 0.8, Strategy: "truncate"},
+				{TokenThreshold: 0.9, Strategy: "summarize"},
+				{TurnThreshold: 30, Strategy: "checkpoint"},
+			},
+			Retention: CompactionRetention{
+				AlwaysKeep: []string{"system_prompt"},
+				Summarize:  []string{"tool_results"},
+				Drop:       []string{"exploratory_logs"},
+			},
+			Strategies: map[string]CompactionStrategy{
+				"truncate":   {Description: "trim older messages"},
+				"summarize":  {Prompt: "summarize tool output"},
+				"checkpoint": {Description: "checkpoint and restart"},
+			},
+		},
+	}
+	if err := Validate(a); err != nil {
+		t.Errorf("valid compaction should pass: %v", err)
+	}
+
+	a.Compaction.Triggers = []CompactionTrigger{{Strategy: "truncate"}}
+	err := Validate(a)
+	if err == nil {
+		t.Fatal("expected invalid compaction trigger to fail")
+	}
+}

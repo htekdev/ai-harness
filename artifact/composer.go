@@ -40,6 +40,9 @@ type ComposedResult struct {
 	// Models is the merged list of model configurations.
 	Models []ModelDef
 
+	// Compaction is the merged compaction policy (if any active compaction artifacts exist).
+	Compaction *CompactionDef
+
 	// ActiveArtifacts lists the artifacts that contributed to this result.
 	ActiveArtifacts []ArtifactSummary
 }
@@ -222,6 +225,16 @@ func (c *Composer) compose(active []*Artifact) *ComposedResult {
 
 		// Models
 		result.Models = append(result.Models, a.Models...)
+
+		// Compaction policy: merge in composition order (higher priority overlays lower).
+		if a.Metadata.Type == TypeCompaction {
+			if result.Compaction == nil {
+				empty := CompactionDef{Strategies: map[string]CompactionStrategy{}}
+				result.Compaction = &empty
+			}
+			merged := mergeCompaction(*result.Compaction, a.Compaction)
+			result.Compaction = &merged
+		}
 	}
 
 	// Rebuild tools list in discovery order (but with overridden definitions)
