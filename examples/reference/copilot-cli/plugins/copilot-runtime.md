@@ -98,6 +98,7 @@ tools:
         description: "Optional job payload"
     script: |
       def run(args):
+          bg_prefix = "bg:"
           task_id = uuid.v4()
           record = {
               "id": task_id,
@@ -105,7 +106,7 @@ tools:
               "status": "queued",
               "payload": args.get("payload", {}),
           }
-          cache.set("bg:" + task_id, json.encode(record))
+          cache.set(bg_prefix + task_id, json.encode(record))
           emit("custom.background.start", record)
           return {"success": True, "task_id": task_id, "status": "queued"}
 
@@ -118,10 +119,11 @@ tools:
         description: "Background task id"
     script: |
       def run(args):
+          bg_prefix = "bg:"
           task_id = args.get("task_id", "")
           if not task_id:
               return {"error": "task_id is required"}
-          key = "bg:" + task_id
+          key = bg_prefix + task_id
           if not cache.has(key):
               return {"error": "task not found", "task_id": task_id}
           return json.decode(cache.get(key))
@@ -163,9 +165,10 @@ hooks:
     priority: 10
     script: |
       def handle(event, payload):
+          max_depth = 3
           depth = payload.get("depth", 1)
-          if depth > 3:
-              return block("delegation depth exceeds reference policy max_depth=3")
+          if depth > max_depth:
+              return block("delegation depth exceeds reference policy max_depth=" + str(max_depth))
           return allow()
 
   - event: delegation.post
@@ -181,7 +184,8 @@ hooks:
     priority: 15
     script: |
       def handle(event, payload):
-          key = "bg:" + payload.get("id", "")
+          bg_prefix = "bg:"
+          key = bg_prefix + payload.get("id", "")
           if cache.has(key):
               current = json.decode(cache.get(key))
               current["status"] = "running"
