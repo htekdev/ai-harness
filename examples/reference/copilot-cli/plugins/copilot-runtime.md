@@ -204,4 +204,4 @@ hooks:
 This plugin intentionally combines tool definitions, hooks, context loading, delegation, and cooperative background behavior to serve as a single inspectable reference profile.
 
 For concept mapping and gap analysis, see:
-`/tmp/workspace/htekdev/ai-harness/examples/reference/copilot-cli.md`
+`examples/reference/copilot-cli.md`

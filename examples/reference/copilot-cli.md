@@ -6,8 +6,8 @@ This reference reverse-engineers core Copilot CLI runtime concepts into AI Harne
 
 A runnable artifact set lives at:
 
-- `/tmp/workspace/htekdev/ai-harness/examples/reference/copilot-cli/identity.md`
-- `/tmp/workspace/htekdev/ai-harness/examples/reference/copilot-cli/plugins/copilot-runtime.md`
+- `examples/reference/copilot-cli/identity.md`
+- `examples/reference/copilot-cli/plugins/copilot-runtime.md`
 
 To inspect or replay in a project harness tree:
 
