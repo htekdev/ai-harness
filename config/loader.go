@@ -185,8 +185,9 @@ func loadExtensionsFromDir(dir string) ([]ToolConfig, []HookConfig, error) {
 
 		tools = append(tools, fm.Tools...)
 		for i := range fm.Hooks {
-			fm.Hooks[i].Source = path
-			hooks = append(hooks, fm.Hooks[i])
+			hook := fm.Hooks[i]
+			hook.Source = path
+			hooks = append(hooks, hook)
 		}
 	}
 

@@ -145,9 +145,6 @@ func validatePlugin(a *Artifact) []string {
 
 func validateExtension(a *Artifact) []string {
 	issues := make([]string, 0)
-	if strings.TrimSpace(a.Metadata.Description) == "" {
-		issues = append(issues, "extension must have a description")
-	}
 	if len(a.Tools) == 0 && len(a.Hooks) == 0 && strings.TrimSpace(a.Context) == "" {
 		issues = append(issues, "extension must provide at least one tool, hook, or context block")
 	}
