@@ -725,11 +725,11 @@ triggers:
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `type` | string | yes | `emit` \| `invoke_adapter` \| `wake_runtime` \| `create_wakeup` |
-| `event` | string | emit only | Event type to emit |
-| `adapter` | string | invoke_adapter only | Adapter name to invoke |
-| `runtime` | string | wake_runtime/create_wakeup only | Runtime identifier or selector |
+| `event` | string | yes (`emit`) | Event type to emit |
+| `adapter` | string | yes (`invoke_adapter`) | Adapter name to invoke |
+| `runtime` | string | yes (`wake_runtime`, `create_wakeup`) | Runtime identifier or selector |
 | `payload` | object | no | Input passed to the emitted event, adapter, or runtime |
-| `at` | string | create_wakeup only | Due time / schedule expression for the wake-up record |
+| `at` | string | yes (`create_wakeup`) | Due time / schedule expression for the wake-up record |
 | `dedupe_key` | string | no | Optional idempotency key for durable actions |
 
 ## Hook system
@@ -814,7 +814,7 @@ A trigger rule evaluates an event envelope with three matching inputs:
 
 - `stream` — which durable event stream to watch
 - `types` — one or more configured event types for the rule
-- `payload` — an optional predicate (`match.when`) over the event payload and metadata
+- `when` — an optional predicate over the event payload and metadata
 
 Conceptually, the engine processes committed event envelopes shaped like:
 
@@ -851,7 +851,7 @@ The system must prevent triggers from recursing indefinitely. The runtime should
 1. **Per-event idempotency** — a rule executes at most once for a given `(trigger_name, event_id)`.
 2. **Causation tracking** — emitted events and wake-up records carry `causation_id`, `origin_event_id`, and `trigger_name`.
 3. **Depth limit** — every trigger-produced event increments `trigger_depth`; execution stops at a configured cap.
-4. **Ancestry check** — if a rule name already appears in the current causation chain, do not execute it again (for example, `followup-on-due` must not re-fire on an event already descended from `followup-on-due`).
+4. **Ancestry check** — if a rule name already appears in the current causation chain, do not execute it again (e.g., `followup-on-due` must not re-fire on an event already descended from `followup-on-due`).
 5. **Wake-up dedupe** — `create_wakeup` must deduplicate on `(runtime, dedupe_key)` or an equivalent durable uniqueness key.
 
 These rules allow safe fan-out while preventing self-triggering loops and duplicate wake-ups.
