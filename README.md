@@ -348,6 +348,63 @@ Delegates can spawn their own delegates, creating trees of specialized workers:
 
 Returns a task handle immediately. Query status with `delegate_status`, get results with `delegate_result`, or block with `delegate_await`.
 
+### Runtime handles (durable async primitive)
+
+`delegate_async` is represented as a runtime handle so the same primitive can also model external processes, watchers, scanners, and schedulers.
+
+#### Handle schema
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | string | yes | Stable handle identifier (for example `dlg-...`, `proc-...`, `watch-...`) |
+| `kind` | string | yes | Runtime-agnostic class (`delegate`, `process`, `watcher`, `scanner`, `scheduler`) |
+| `subject` | string | yes | Human-readable work target (`"analyze auth hooks"`, `"cron:nightly-scan"`) |
+| `desired_state` | string | yes | Caller intent (`running` or `stopped`) |
+| `status` | string | yes | Observed execution state (`requested`, `started`, `heartbeat`, `checkpointed`, `failed`, `stopped`) |
+| `lease.owner` | string | no | Current owner identity for exclusive execution (worker id / runtime instance id) |
+| `lease.expires_at` | timestamp | no | Lease expiry; ownership is invalid after this time |
+| `heartbeat.last_at` | timestamp | no | Last liveness signal from active owner |
+| `heartbeat.timeout_seconds` | int | no | Max heartbeat age before the handle is considered stale |
+| `checkpoint.token` | string | no | Opaque cursor/snapshot id used for resume |
+| `checkpoint.data` | object | no | Runtime-specific durable progress payload |
+| `checkpoint.at` | timestamp | no | Time of latest durable checkpoint |
+| `last_error` | string | no | Most recent failure reason (set on `failed`) |
+| `created_at` | timestamp | yes | Handle creation time |
+| `updated_at` | timestamp | yes | Last projection update time |
+
+Notes:
+- `desired_state` is declarative intent; `status` is observed reality from events.
+- `checkpoint.*` must be runtime-agnostic and opaque to the registry projection.
+- A handle can be reconciled by any compatible runtime when lease rules are satisfied.
+
+#### Runtime lifecycle events
+
+Events are append-only facts. A runtime registry projection derives current handle state by replaying these events in order.
+
+| Event | Required payload | Projection effect |
+| --- | --- | --- |
+| `requested` | `id`, `kind`, `subject`, `desired_state=running` | Create/update handle intent; initial state is pending execution |
+| `started` | `id`, `lease.owner`, `lease.expires_at` | Claim lease and mark work actively owned |
+| `heartbeat` | `id`, `heartbeat.last_at`, `lease.expires_at` | Refresh liveness and lease TTL |
+| `checkpointed` | `id`, `checkpoint.token`, `checkpoint.data`, `checkpoint.at` | Persist resumable progress |
+| `failed` | `id`, `last_error` | Mark failed state while preserving latest checkpoint |
+| `stopped` | `id`, optional `reason` | End execution and clear active ownership |
+
+#### Recovery and reconciliation semantics
+
+After crashes or runtime restarts, reconcile handles using the same deterministic rules:
+
+1. Rebuild state from events (or from a snapshot + subsequent events).
+2. For each handle where `desired_state=running`:
+   - If `status` is `requested` and lease is free/expired, a worker may emit `started`.
+   - If lease is expired (`now > lease.expires_at`) or heartbeat is stale (`now - heartbeat.last_at > heartbeat.timeout_seconds`), ownership is treated as lost and another worker may acquire by emitting `started`.
+   - Resume from latest `checkpoint.*` when available; otherwise restart from initial input.
+3. For handles with `desired_state=stopped`, workers must not reacquire leases; only `stopped`/terminal projection updates are allowed.
+4. `failed` is non-terminal for desired running work: reconciliation can retry by acquiring a new lease and emitting `started` again, unless policy marks the handle permanently failed.
+5. Event writes must be idempotent at the producer level (same event id ignored on replay) so recovery does not duplicate side effects.
+
+These rules keep handle behavior consistent across delegates, external processes, watchers, scanners, and schedulers while remaining implementation-agnostic.
+
 ### Custom agents
 
 Named agents in `.harness/agents/` bundle:
