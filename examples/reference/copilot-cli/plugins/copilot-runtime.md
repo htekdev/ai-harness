@@ -5,7 +5,7 @@ version: "0.1.0"
 description: "Reference plugin expressing Copilot CLI runtime patterns as harness artifacts"
 author: "AI Harness"
 tags: ["reference", "copilot-cli", "tools", "hooks", "delegation", "background"]
-condition: 'ctx.get("runtime") == None or ctx.get("runtime") == "copilot-cli"'
+condition: 'not ctx.has("runtime") or ctx.get("runtime") == "copilot-cli"'
 tools:
   - name: bash
     description: "Named shell tool wrapper (preferred over raw exec)"
