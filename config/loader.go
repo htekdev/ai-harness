@@ -183,12 +183,10 @@ func loadExtensionsFromDir(dir string) ([]ToolConfig, []HookConfig, error) {
 			return nil, nil, fmt.Errorf("extension %q must provide tools, hooks, or context body", fm.Name)
 		}
 
-		for _, t := range fm.Tools {
-			tools = append(tools, t)
-		}
-		for _, h := range fm.Hooks {
-			h.Source = path
-			hooks = append(hooks, h)
+		tools = append(tools, fm.Tools...)
+		for i := range fm.Hooks {
+			fm.Hooks[i].Source = path
+			hooks = append(hooks, fm.Hooks[i])
 		}
 	}
 
