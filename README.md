@@ -92,6 +92,11 @@ The harness enforces safety through architecture:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+Async delegates already establish the runtime-handle pattern through the task store.
+Watcher adapters follow the same model: they are long-lived runtimes that observe
+state, expose a handle for status/stop operations, and append normalized events to
+the event store instead of becoming a second persistence system.
+
 ## Installation
 
 ### CLI (recommended)
@@ -957,6 +962,112 @@ result, err := composer.Compose(nil)
 // result.Identity    — merged system prompt from harness artifact
 // result.ContextBlocks — context from all active non-harness artifacts
 ```
+
+## Watcher adapters & event streams
+
+Watchers are **runtime adapters**, not a parallel persistence model. A watcher owns
+an observation loop, emits normalized events, and relies on the event store for
+durable history. Any materialized state or projection should be rebuilt from the
+append-only event log rather than stored inside the watcher itself.
+
+### Watcher categories
+
+| Category | Observes | Typical events |
+|---|---|---|
+| `file` | Files, directories, globs, content digests | `watcher.file.changed`, `watcher.file.created`, `watcher.file.deleted` |
+| `process` | Long-running commands, child processes, background workers | `watcher.process.started`, `watcher.process.output`, `watcher.process.exited` |
+| `projection` | Derived state rebuilt from the event store or runtime snapshots | `watcher.projection.changed`, `watcher.projection.rebuilt`, `watcher.projection.stale` |
+| `webhook` | External HTTP/webhook deliveries normalized into harness events | `watcher.webhook.received`, `watcher.webhook.accepted`, `watcher.webhook.rejected` |
+
+`projection` is the state-watcher category: it watches computed state, not raw files
+or processes, and should always point back to the underlying event stream it was
+derived from.
+
+### Naming contract
+
+Watcher events use dot-separated names:
+
+```text
+watcher.<category>.<action>
+```
+
+Examples:
+
+- `watcher.file.changed`
+- `watcher.process.exited`
+- `watcher.projection.rebuilt`
+- `watcher.webhook.received`
+
+This keeps watcher-emitted events distinct from lifecycle hook events such as
+`session.start` or `tool.pre` while still fitting the same event-stream vocabulary.
+
+### Event envelope
+
+All watcher adapters should emit the same top-level payload shape, with adapter-
+specific details nested under `data`:
+
+```json
+{
+  "id": "evt_01jwatch...",
+  "name": "watcher.file.changed",
+  "occurred_at": "2026-05-29T13:00:00Z",
+  "runtime_id": "watch_01jruntime...",
+  "sequence": 42,
+  "category": "file",
+  "subject": {
+    "key": "README.md",
+    "uri": "file:///workspace/README.md"
+  },
+  "coalesced": {
+    "count": 3,
+    "window_ms": 250
+  },
+  "data": {
+    "op": "write",
+    "digest_before": "sha256:...",
+    "digest_after": "sha256:..."
+  }
+}
+```
+
+Required envelope fields:
+
+- `id` — unique event identifier for persistence/replay
+- `name` — normalized event name (`watcher.<category>.<action>`)
+- `occurred_at` — timestamp when the observed change happened
+- `runtime_id` — handle of the watcher runtime that emitted the event
+- `sequence` — monotonic counter scoped to the watcher runtime
+- `category` — one of `file`, `process`, `projection`, `webhook`
+- `subject` — stable identity of the observed thing
+- `data` — adapter-specific payload
+
+Optional but recommended:
+
+- `coalesced` — burst/debounce metadata
+- adapter-native correlation fields inside `data` (PID, delivery ID, projection key, digest, exit code, etc.)
+
+### Debouncing & coalescing
+
+Watcher adapters should coalesce noisy edges before writing to the event store:
+
+- debounce by `subject.key` within an adapter-defined window
+- emit one canonical event for the settled change, not every raw OS notification
+- record the collapse in `coalesced.count` and `coalesced.window_ms`
+- preserve ordering by incrementing `sequence` on the emitted event, not on dropped raw signals
+
+Examples:
+
+- a file watcher may collapse multiple write notifications into one `watcher.file.changed`
+- a process watcher may batch stdout chunks into periodic `watcher.process.output` events
+- a webhook watcher should usually avoid time-based debouncing, but may dedupe by delivery ID
+
+### Relationship to runtimes and persistence
+
+- Starting a watcher creates a **runtime handle** (`runtime_id`) just like async delegation creates a task handle.
+- Runtime handles own lifecycle operations such as status, stop, restart, and inspection.
+- Watchers do **not** store authoritative mutable state; they only observe and emit.
+- The **event store** is the durable boundary: watcher events are appended there and can be replayed, audited, projected, or correlated with hook/agent/runtime events.
+- Projection watchers must read from the event store (or from projections built from it), so state rebuild and debugging stay coherent with the append-only model.
 
 ## Status
 
