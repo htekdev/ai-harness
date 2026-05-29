@@ -685,7 +685,7 @@ hooks:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `event` | string | yes | Must match a lifecycle event or use `custom.*` / `meta.*` |
+| `event` | string | yes | Must match a defined lifecycle event (see Hook system section) or use `custom.*` / `meta.*` |
 | `handler` | string | yes | Symbolic handler name |
 | `when` | string | no | Optional Starlark expression; hook runs only when it evaluates truthy |
 | `priority` | int | no | Lower numbers execute first (default: 100) |
@@ -708,8 +708,8 @@ Hooks are part of the control plane and run at explicit lifecycle boundaries in 
 
 Extension namespaces:
 
-- `custom.*` — user-defined domain events emitted via `emit("custom.event_name", payload)`
-- `meta.*` — runtime governance events emitted by `meta.register_tool`, `meta.register_hook`, `meta.register_agent`, and `meta.call_tool`
+- `custom.*` — user-defined domain events emitted via `emit("custom.event_name", payload)` from Starlark hook/tool scripts
+- `meta.*` — runtime governance events emitted by `meta.register_tool`, `meta.register_hook`, `meta.register_agent`, and `meta.call_tool` (dynamic registration/invocation control points)
 
 Hooks may also include a `when:` expression that can inspect `event`, `payload`, and standard Starlark built-ins before `handle(event, payload)` runs.
 
@@ -735,7 +735,7 @@ Hooks pair with observability surfaces so policy and runtime behavior can be ins
 - `harness hooks --verbose`: active handlers, events, and priorities (policy plane visibility)
 - `harness context [-v|--json]`: composed context snapshot with provenance, token budget usage, inactive artifacts, and warnings
 - Starlark runtime state: `metrics.incr/get/reset/snapshot`, `ctx.*`, and `cache.*` for in-turn counters and state inspection
-- event stream surface: built-in lifecycle events, `custom.*` events (via `emit(...)`), and `meta.*` governance events for forwarding into external logs, queues, or telemetry backends
+- event stream surface: built-in lifecycle events, `custom.*` events (via `emit(...)`), and `meta.*` governance events; export is hook-driven (for example `log(...)`, `http.post(...)`, or `exec.run(...)` from hook scripts)
 
 This aligns with event-driven persistence: treat hook dispatches and context snapshots as append-only runtime facts that can be exported to your observability stack for auditing, replay, and governance reporting.
 
@@ -988,7 +988,7 @@ result, err := composer.Compose(nil)
 |-----------|--------|
 | Config (Markdown + YAML) | ✅ Stable |
 | Agent loop (parallel tools) | ✅ Stable |
-| Hook system (11 lifecycle events + custom/meta namespaces) | ✅ Stable |
+| Hook system (core lifecycle events + custom/meta namespaces) | ✅ Stable |
 | Tool registry + Starlark engine | ✅ Stable |
 | Delegation (sync + async) | ✅ Stable |
 | Completion client (streaming) | ✅ Stable |
