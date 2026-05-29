@@ -594,6 +594,85 @@ Capabilities:
 - merge file-based definitions with inline (additive, files win on collision)
 - apply defaults and validate
 
+## Durable scheduling primitive (data + scanner)
+
+AI Harness scheduling is defined as durable data and event contracts. The runtime does **not** require a built-in cron daemon.
+
+### Schedule records (durable data)
+
+Schedule definitions are stored as data with one of three `kind` values:
+
+- `one_shot` — run once at an absolute timestamp
+- `interval` — run every fixed duration from an anchor
+- `cron` — run from a cron expression (with optional timezone)
+
+Example shape:
+
+```yaml
+schedules:
+  - id: nightly-evals
+    kind: cron
+    expr: "0 2 * * *"
+    timezone: UTC
+    payload:
+      task: run_evals
+
+  - id: backlog-sync
+    kind: interval
+    every: 15m
+    anchor_at: "2026-01-01T00:00:00Z"
+    payload:
+      task: sync_backlog
+
+  - id: one-time-release
+    kind: one_shot
+    at: "2026-06-01T17:00:00Z"
+    payload:
+      task: publish_release_notes
+```
+
+### Schedule lifecycle events
+
+The primitive emits four explicit schedule events:
+
+| Event | When emitted |
+| --- | --- |
+| `schedule.created` | A new schedule record is created |
+| `schedule.updated` | Schedule definition or status changes |
+| `schedule.deleted` | Schedule is removed or soft-deleted |
+| `schedule.due` | A due occurrence is claimed by a scanner and emitted |
+
+### Projection: computing `next_due_at`
+
+A projection maintains derived timing fields from schedule data:
+
+- `next_due_at` — next eligible due timestamp
+- `last_due_at` — last emitted due timestamp (if any)
+- `active` / `deleted_at` — eligibility flags
+
+Projection rules:
+
+1. `one_shot`: `next_due_at = at` until emitted, then `next_due_at = null`
+2. `interval`: `next_due_at` advances by `every` from `anchor_at` (or previous due)
+3. `cron`: `next_due_at` is the next cron match in `timezone`
+
+### External due-event scanner contract
+
+The scanner is an external daemon/sidecar that repeatedly:
+
+1. Reads projection rows where `active = true` and `next_due_at <= now()`
+2. Claims rows atomically (lease/lock) to avoid duplicate emitters
+3. Emits `schedule.due` with `{schedule_id, due_at, payload, idempotency_key}`
+4. Advances projection (`last_due_at`, recomputed `next_due_at`, lease release)
+
+Required contract details:
+
+- `idempotency_key` should be deterministic per occurrence (for example `schedule_id + due_at`)
+- Emitters must tolerate retries and duplicate delivery attempts
+- Multiple scanners may run concurrently if they honor the same claim/lease semantics
+
+This keeps AI Harness core lightweight while providing a clear integration path for Kubernetes CronJobs, long-running workers, queue consumers, or any external scheduler process.
+
 ## Configuration reference
 
 Example `harness.md` frontmatter:
