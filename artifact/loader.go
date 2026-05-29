@@ -112,6 +112,7 @@ func LoadDir(dir string) ([]*Artifact, error) {
 //	baseDir/
 //	  identity.md      → type: harness (auto-detected)
 //	  builtins/*.md    → type: builtin
+//	  extensions/*.md  → type: extension
 //	  plugins/*.md     → type: plugin
 //	  models/*.md      → type: model
 //	  overrides/*.md   → type: override
@@ -121,7 +122,7 @@ func LoadTree(baseDir string) ([]*Artifact, error) {
 	dirs := []string{
 		baseDir,
 	}
-	subdirs := []string{"builtins", "plugins", "models", "overrides"}
+	subdirs := []string{"builtins", "extensions", "plugins", "models", "overrides"}
 	for _, sub := range subdirs {
 		dirs = append(dirs, filepath.Join(baseDir, sub))
 	}

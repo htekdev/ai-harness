@@ -15,7 +15,7 @@ func cmdArtifacts(args []string) error {
 	verbose := fs.Bool("verbose", false, "Show detailed artifact information")
 	fs.BoolVar(verbose, "v", false, "Show detailed artifact information")
 	dir := fs.String("dir", ".", "Project directory to scan")
-	typeFilter := fs.String("type", "", "Filter by artifact type (override, harness, builtin, plugin, model)")
+	typeFilter := fs.String("type", "", "Filter by artifact type (override, harness, builtin, extension, plugin, model)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -31,6 +31,7 @@ func cmdArtifacts(args []string) error {
 			fmt.Println("To get started, create artifact files in .harness/ with typed frontmatter:")
 			fmt.Println("  .harness/identity.md       (type: harness)")
 			fmt.Println("  .harness/builtins/*.md     (type: builtin)")
+			fmt.Println("  .harness/extensions/*.md   (type: extension)")
 			fmt.Println("  .harness/plugins/*.md      (type: plugin)")
 			fmt.Println("  .harness/models/*.md       (type: model)")
 			fmt.Println("  .harness/overrides/*.md    (type: override)")

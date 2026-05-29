@@ -116,6 +116,9 @@ func cmdHooks(args []string) error {
 			if h.When != "" {
 				fmt.Printf("    When:     %s\n", h.When)
 			}
+			if h.Source != "" {
+				fmt.Printf("    Source:   %s\n", h.Source)
+			}
 			fmt.Println()
 		} else {
 			fmt.Printf("  %-24s event=%-20s priority=%d\n", h.Handler, h.Event, priority)

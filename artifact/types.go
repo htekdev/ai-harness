@@ -9,6 +9,7 @@
 //   - override: Project-local overrides that supersede any other artifact
 //   - harness: The root harness identity and policy artifact
 //   - builtin: Core capabilities shipped with the harness runtime
+//   - extension: Extension capability bundles
 //   - plugin: Third-party or user-authored capability bundles
 //   - model: Provider/model onboarding artifacts
 package artifact
@@ -35,6 +36,10 @@ const (
 	// Priority: 60. Read-only; cannot be modified by users.
 	TypeBuiltin Type = "builtin"
 
+	// TypeExtension is an extension capability bundle.
+	// Priority: 50. First-class extension surface for hooks/tools/context.
+	TypeExtension Type = "extension"
+
 	// TypePlugin is a user-authored or third-party capability bundle.
 	// Priority: 40. The primary extensibility surface.
 	TypePlugin Type = "plugin"
@@ -46,7 +51,7 @@ const (
 
 // AllTypes returns all valid artifact types in priority order (highest first).
 func AllTypes() []Type {
-	return []Type{TypeOverride, TypeHarness, TypeBuiltin, TypePlugin, TypeModel}
+	return []Type{TypeOverride, TypeHarness, TypeBuiltin, TypeExtension, TypePlugin, TypeModel}
 }
 
 // Priority returns the composition priority for this artifact type.
@@ -59,6 +64,8 @@ func (t Type) Priority() int {
 		return 80
 	case TypeBuiltin:
 		return 60
+	case TypeExtension:
+		return 50
 	case TypePlugin:
 		return 40
 	case TypeModel:
@@ -71,7 +78,7 @@ func (t Type) Priority() int {
 // Valid returns true if this is a recognized artifact type.
 func (t Type) Valid() bool {
 	switch t {
-	case TypeOverride, TypeHarness, TypeBuiltin, TypePlugin, TypeModel:
+	case TypeOverride, TypeHarness, TypeBuiltin, TypeExtension, TypePlugin, TypeModel:
 		return true
 	default:
 		return false
@@ -87,7 +94,7 @@ func (t Type) String() string {
 func ParseType(s string) (Type, error) {
 	t := Type(strings.TrimSpace(strings.ToLower(s)))
 	if !t.Valid() {
-		return "", fmt.Errorf("unknown artifact type %q; valid types: override, harness, builtin, plugin, model", s)
+		return "", fmt.Errorf("unknown artifact type %q; valid types: override, harness, builtin, extension, plugin, model", s)
 	}
 	return t, nil
 }

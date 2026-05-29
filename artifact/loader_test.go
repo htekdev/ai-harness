@@ -161,7 +161,7 @@ func TestLoadTree(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create subdirectories
-	for _, sub := range []string{"builtins", "plugins", "models"} {
+	for _, sub := range []string{"builtins", "extensions", "plugins", "models"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -211,12 +211,27 @@ Plugin context.
 		t.Fatal(err)
 	}
 
+	extension := []byte(`---
+name: github-copilot
+type: extension
+description: Extension bundle
+hooks:
+  - event: onPreToolUse
+    handler: enforce-policy
+---
+
+Extension context.
+`)
+	if err := os.WriteFile(filepath.Join(dir, "extensions", "github-copilot.md"), extension, 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	artifacts, err := LoadTree(dir)
 	if err != nil {
 		t.Fatalf("LoadTree failed: %v", err)
 	}
-	if len(artifacts) != 3 {
-		t.Errorf("expected 3 artifacts, got %d", len(artifacts))
+	if len(artifacts) != 4 {
+		t.Errorf("expected 4 artifacts, got %d", len(artifacts))
 	}
 }
 

@@ -13,6 +13,7 @@ func TestParseType(t *testing.T) {
 		{"override", TypeOverride, false},
 		{"harness", TypeHarness, false},
 		{"builtin", TypeBuiltin, false},
+		{"extension", TypeExtension, false},
 		{"plugin", TypePlugin, false},
 		{"model", TypeModel, false},
 		{"OVERRIDE", TypeOverride, false},
@@ -37,7 +38,7 @@ func TestParseType(t *testing.T) {
 }
 
 func TestTypePriority(t *testing.T) {
-	// Verify priority ordering: override > harness > builtin > plugin > model
+	// Verify priority ordering: override > harness > builtin > extension > plugin > model
 	if TypeOverride.Priority() <= TypeHarness.Priority() {
 		t.Error("override should have higher priority than harness")
 	}
@@ -46,6 +47,12 @@ func TestTypePriority(t *testing.T) {
 	}
 	if TypeBuiltin.Priority() <= TypePlugin.Priority() {
 		t.Error("builtin should have higher priority than plugin")
+	}
+	if TypeBuiltin.Priority() <= TypeExtension.Priority() {
+		t.Error("builtin should have higher priority than extension")
+	}
+	if TypeExtension.Priority() <= TypePlugin.Priority() {
+		t.Error("extension should have higher priority than plugin")
 	}
 	if TypePlugin.Priority() <= TypeModel.Priority() {
 		t.Error("plugin should have higher priority than model")

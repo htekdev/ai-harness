@@ -78,6 +78,7 @@ type HookConfig struct {
 	Script   string `yaml:"script,omitempty" json:"script,omitempty"`
 	When     string `yaml:"when,omitempty" json:"when,omitempty"`
 	Priority int    `yaml:"priority,omitempty" json:"priority,omitempty"`
+	Source   string `yaml:"-" json:"-"`
 }
 
 // Load reads and parses a YAML configuration file.

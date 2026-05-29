@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +96,50 @@ Guards against bad paths.
 	}
 	if hook.Event != "tool.pre" {
 		t.Errorf("expected event 'tool.pre', got %q", hook.Event)
+	}
+	if hook.Source == "" {
+		t.Errorf("expected hook source to be set")
+	}
+}
+
+func TestLoadDirectory_WithExtensions(t *testing.T) {
+	dir := t.TempDir()
+	extDir := filepath.Join(dir, ".harness", "extensions")
+	if err := os.MkdirAll(extDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	extContent := `---
+name: corp-extension
+type: extension
+description: Corporate extension
+hooks:
+  - event: tool.pre
+    handler: ext_guard
+    script: |
+      def handle(event, payload):
+          return allow()
+---
+
+Extension context.
+`
+	if err := os.WriteFile(filepath.Join(extDir, "corp-extension.md"), []byte(extContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Config.Hooks) != 1 {
+		t.Fatalf("expected 1 hook from extension, got %d", len(result.Config.Hooks))
+	}
+	hook := result.Config.Hooks[0]
+	if hook.Handler != "ext_guard" {
+		t.Errorf("expected handler ext_guard, got %q", hook.Handler)
+	}
+	if hook.Source == "" || !strings.Contains(hook.Source, "corp-extension.md") {
+		t.Errorf("expected extension source path, got %q", hook.Source)
 	}
 }
 

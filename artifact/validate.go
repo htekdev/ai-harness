@@ -35,6 +35,8 @@ func Validate(a *Artifact) error {
 		issues = append(issues, validateHarness(a)...)
 	case TypeBuiltin:
 		issues = append(issues, validateBuiltin(a)...)
+	case TypeExtension:
+		issues = append(issues, validateExtension(a)...)
 	case TypePlugin:
 		issues = append(issues, validatePlugin(a)...)
 	case TypeModel:
@@ -137,6 +139,17 @@ func validatePlugin(a *Artifact) []string {
 	// Plugins must have a description
 	if strings.TrimSpace(a.Metadata.Description) == "" {
 		issues = append(issues, "plugin must have a description")
+	}
+	return issues
+}
+
+func validateExtension(a *Artifact) []string {
+	issues := make([]string, 0)
+	if strings.TrimSpace(a.Metadata.Description) == "" {
+		issues = append(issues, "extension must have a description")
+	}
+	if len(a.Tools) == 0 && len(a.Hooks) == 0 && strings.TrimSpace(a.Context) == "" {
+		issues = append(issues, "extension must provide at least one tool, hook, or context block")
 	}
 	return issues
 }

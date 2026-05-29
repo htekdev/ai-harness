@@ -35,12 +35,22 @@ func LoadDirectory(baseDir string) (*LoadResult, error) {
 		result.Config.Tools = tools
 	}
 
+	// Load extension artifacts from .harness/extensions/
+	// Extension hooks/tools normalize into the same config lists.
+	extensionsDir := filepath.Join(harnessDir, "extensions")
+	if extTools, extHooks, err := loadExtensionsFromDir(extensionsDir); err != nil {
+		return nil, fmt.Errorf("load .harness/extensions: %w", err)
+	} else {
+		result.Config.Tools = append(result.Config.Tools, extTools...)
+		result.Config.Hooks = append(result.Config.Hooks, extHooks...)
+	}
+
 	// Load hooks from .harness/hooks/
 	hooksDir := filepath.Join(harnessDir, "hooks")
 	if hooks, err := loadHooksFromDir(hooksDir); err != nil {
 		return nil, fmt.Errorf("load .harness/hooks: %w", err)
 	} else {
-		result.Config.Hooks = hooks
+		result.Config.Hooks = append(result.Config.Hooks, hooks...)
 	}
 
 	// Load agents from .harness/agents/
@@ -106,7 +116,8 @@ func loadHooksFromDir(dir string) ([]HookConfig, error) {
 		}
 
 		name := strings.TrimSuffix(entry.Name(), ".md")
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read hook file %s: %w", entry.Name(), err)
 		}
@@ -116,10 +127,72 @@ func loadHooksFromDir(dir string) ([]HookConfig, error) {
 			return nil, fmt.Errorf("parse hook %s: %w", entry.Name(), err)
 		}
 
+		hook.Source = path
 		hooks = append(hooks, *hook)
 	}
 
 	return hooks, nil
+}
+
+// loadExtensionsFromDir loads extension artifacts and normalizes their hooks/tools
+// into the same config primitives used by direct definitions.
+func loadExtensionsFromDir(dir string) ([]ToolConfig, []HookConfig, error) {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, nil, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read directory %s: %w", dir, err)
+	}
+
+	var tools []ToolConfig
+	var hooks []HookConfig
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read extension file %s: %w", entry.Name(), err)
+		}
+		doc, err := ParseMarkdown(data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse extension %s: %w", entry.Name(), err)
+		}
+
+		type extensionFrontmatter struct {
+			Name        string       `yaml:"name"`
+			Type        string       `yaml:"type"`
+			Description string       `yaml:"description,omitempty"`
+			Tools       []ToolConfig `yaml:"tools,omitempty"`
+			Hooks       []HookConfig `yaml:"hooks,omitempty"`
+		}
+		var fm extensionFrontmatter
+		if err := yamlUnmarshal(doc.Frontmatter, &fm); err != nil {
+			return nil, nil, fmt.Errorf("parse extension frontmatter %s: %w", entry.Name(), err)
+		}
+		if strings.TrimSpace(strings.ToLower(fm.Type)) != "extension" {
+			return nil, nil, fmt.Errorf("extension file %s must declare type: extension (got %q)", entry.Name(), fm.Type)
+		}
+		if strings.TrimSpace(fm.Name) == "" {
+			return nil, nil, fmt.Errorf("extension file %s must declare name", entry.Name())
+		}
+		if len(fm.Tools) == 0 && len(fm.Hooks) == 0 && strings.TrimSpace(doc.Body) == "" {
+			return nil, nil, fmt.Errorf("extension %q must provide tools, hooks, or context body", fm.Name)
+		}
+
+		for _, t := range fm.Tools {
+			tools = append(tools, t)
+		}
+		for _, h := range fm.Hooks {
+			h.Source = path
+			hooks = append(hooks, h)
+		}
+	}
+
+	return tools, hooks, nil
 }
 
 // loadAgentsFromDir scans a directory for .md files and parses each as an agent.
@@ -199,6 +272,11 @@ func LoadFull(configPath string) (*Config, map[string]*AgentConfig, error) {
 	cfg, err := LoadAuto(configPath)
 	if err != nil {
 		return nil, nil, err
+	}
+	for i := range cfg.Hooks {
+		if cfg.Hooks[i].Source == "" {
+			cfg.Hooks[i].Source = configPath
+		}
 	}
 
 	baseDir := filepath.Dir(configPath)

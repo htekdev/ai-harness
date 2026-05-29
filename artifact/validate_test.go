@@ -140,6 +140,28 @@ func TestValidateModel(t *testing.T) {
 	}
 }
 
+func TestValidateExtension(t *testing.T) {
+	a := &Artifact{
+		Metadata: Metadata{
+			Name:        "corp-extension",
+			Type:        TypeExtension,
+			Description: "Enterprise extension bundle",
+		},
+		Hooks: []HookDef{{Event: "onPreToolUse", Handler: "guard"}},
+	}
+	if err := Validate(a); err != nil {
+		t.Errorf("valid extension should pass: %v", err)
+	}
+
+	a.Hooks = nil
+	a.Tools = nil
+	a.Context = ""
+	err := Validate(a)
+	if err == nil {
+		t.Error("extension without tools/hooks/context should fail")
+	}
+}
+
 func TestValidateHarness(t *testing.T) {
 	a := &Artifact{
 		Metadata: Metadata{
