@@ -641,6 +641,18 @@ tools:
 hooks:
   - event: tool.pre         # see valid hook events below
     handler: audit_log      # symbolic hook name
+
+triggers:
+  - name: followup-on-due
+    match:
+      stream: events
+      types: [schedule.due]
+      when: 'payload.get("kind") == "followup"'
+    actions:
+      - type: wake_runtime
+        runtime: followup-worker
+      - type: emit
+        event: followup.requested
 ```
 
 ### Full schema
@@ -690,6 +702,35 @@ hooks:
 | `when` | string | no | Optional Starlark expression; hook runs only when it evaluates truthy |
 | `priority` | int | no | Lower numbers execute first (default: 100) |
 | `script` | string | no | Starlark script implementing `def handle(event, payload): ...` |
+
+#### `triggers[]`
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string | yes | Unique durable trigger rule name |
+| `match` | object | yes | Event stream/type/predicate matcher |
+| `actions` | list | yes | One or more primitive actions |
+| `enabled` | bool | no | Defaults to `true` |
+
+#### `triggers[].match`
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `stream` | string | no | Durable event stream name; defaults to `events` |
+| `types` | []string | yes | One or more event types that should fire the rule |
+| `when` | string | no | Optional predicate over `event` and `payload`; trigger fires only when truthy |
+
+#### `triggers[].actions[]`
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `type` | string | yes | `emit` \| `invoke_adapter` \| `wake_runtime` \| `create_wakeup` |
+| `event` | string | emit only | Event type to emit |
+| `adapter` | string | invoke_adapter only | Adapter name to invoke |
+| `runtime` | string | wake_runtime/create_wakeup only | Runtime identifier or selector |
+| `payload` | object | no | Input passed to the emitted event, adapter, or runtime |
+| `at` | string | create_wakeup only | Due time / schedule expression for the wake-up record |
+| `dedupe_key` | string | no | Optional idempotency key for durable actions |
 
 ## Hook system
 
@@ -762,6 +803,69 @@ sys.Register(hooks.Registration{
   },
 })
 ```
+
+## Trigger system
+
+Triggers are the durable, event-driven counterpart to hooks. A hook intercepts the current in-process operation; a trigger reacts to an already-recorded event and schedules or fans out follow-up work.
+
+### Rule model
+
+A trigger rule evaluates an event envelope with three matching inputs:
+
+- `stream` — which durable event stream to watch
+- `types` — one or more configured event types for the rule
+- `payload` — an optional predicate (`match.when`) over the event payload and metadata
+
+Conceptually, the engine processes committed event envelopes shaped like:
+
+```json
+{
+  "id": "evt_123",
+  "stream": "events",
+  "type": "schedule.due",
+  "payload": {"kind": "followup"},
+  "meta": {
+    "causation_id": "evt_122",
+    "origin_event_id": "evt_122"
+  }
+}
+```
+
+If `match.stream`, `match.types`, and `match.when` all pass, the rule fires and executes its actions in order.
+
+### Primitive actions
+
+The action surface stays intentionally small:
+
+- `emit` — append another event to a durable stream
+- `invoke_adapter` — call an adapter that bridges to an external system
+- `wake_runtime` — wake an existing runtime or start it if policy allows
+- `create_wakeup` — write a durable wake-up record for later processing
+
+More complex workflows should be expressed by composing these primitives instead of adding bespoke trigger actions.
+
+### Loop protection
+
+Triggers must never recurse indefinitely. The runtime should enforce all of the following:
+
+1. **Per-event idempotency** — a rule executes at most once for a given `(trigger_name, event_id)`.
+2. **Causation tracking** — emitted events and wake-up records carry `causation_id`, `origin_event_id`, and `trigger_name`.
+3. **Depth limit** — every trigger-produced event increments `trigger_depth`; execution stops at a configured cap.
+4. **Ancestry check** — if a rule name already appears in the current causation chain, do not execute it again.
+5. **Wake-up dedupe** — `create_wakeup` must deduplicate on `(runtime, dedupe_key)` or an equivalent durable uniqueness key.
+
+These rules allow safe fan-out while preventing self-triggering loops and duplicate wake-ups.
+
+### Hooks vs triggers
+
+| Use | Hooks | Triggers |
+| --- | --- | --- |
+| Timing | Inline, during the current agent/tool/completion lifecycle | After an event is durably recorded |
+| Primary job | Block, rewrite, or observe in-flight work | Start follow-up work or emit more events |
+| Persistence | Ephemeral/in-process | Durable/event-driven |
+| Best for | Governance, validation, prompt/tool rewrites | Long-running orchestration, adapters, scheduling, runtime wake-ups |
+
+In short: use **hooks** to control what is happening *right now*; use **triggers** to react to what has *already happened*.
 
 ## Tool registration
 
