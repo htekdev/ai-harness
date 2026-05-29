@@ -685,7 +685,7 @@ hooks:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `event` | string | yes | Must match a defined lifecycle event |
+| `event` | string | yes | Must match a lifecycle event or use `custom.*` / `meta.*` |
 | `handler` | string | yes | Symbolic handler name |
 | `when` | string | no | Optional Starlark expression; hook runs only when it evaluates truthy |
 | `priority` | int | no | Lower numbers execute first (default: 100) |
@@ -693,29 +693,51 @@ hooks:
 
 ## Hook system
 
-### Events
+### Lifecycle (control-plane order)
 
-Valid events:
+Hooks are part of the control plane and run at explicit lifecycle boundaries in deterministic priority order.
 
-Hooks may also include a `when:` expression that can inspect `event`, `payload`, and the standard Starlark built-ins before the main `handle(event, payload)` function runs.
+| Phase | Event | Purpose |
+| --- | --- | --- |
+| Session | `session.start` / `session.end` | Session bootstrap and teardown policies |
+| Turn | `turn.start` / `turn.end` | Input normalization and turn-level governance |
+| Completion | `completion.pre` / `completion.post` | Gate and shape model request/response |
+| Tool execution | `tool.pre` / `tool.post` | Enforce tool policy before/after execution |
+| Delegation | `delegation.pre` / `delegation.post` | Gate recursive delegation and post-process results |
+| Error | `error` | Observe/report runtime failures |
 
+Extension namespaces:
 
-- `session.start`
-- `session.end`
-- `turn.start`
-- `turn.end`
-- `tool.pre`
-- `tool.post`
-- `completion.pre`
-- `completion.post`
+- `custom.*` — user-defined domain events emitted via `emit("custom.event_name", payload)`
+- `meta.*` — runtime governance events emitted by `meta.register_tool`, `meta.register_hook`, `meta.register_agent`, and `meta.call_tool`
 
-### Actions
+Hooks may also include a `when:` expression that can inspect `event`, `payload`, and standard Starlark built-ins before `handle(event, payload)` runs.
+
+### Actions and capability boundaries
 
 A hook handler returns `hooks.Result` with one of these actions:
 
 - `ActionContinue`: continue normally
 - `ActionBlock`: stop execution and return an error
-- `ActionModify`: replace the payload passed to subsequent handlers
+- `ActionModify`: replace payload for subsequent handlers and downstream execution
+
+Governance boundaries are explicit:
+
+- registration validates event names (`session.*`, `turn.*`, `tool.*`, `completion.*`, `delegation.*`, `error`, `custom.*`, `meta.*`)
+- lower priority numbers run first, giving deterministic policy ordering
+- `ActionModify` is scoped to the dispatched payload seen by subsequent handlers and downstream execution
+- `ActionBlock` is the only deny primitive and is surfaced with explicit reason text
+
+### Monitoring and telemetry surfaces
+
+Hooks pair with observability surfaces so policy and runtime behavior can be inspected and persisted:
+
+- `harness hooks --verbose`: active handlers, events, and priorities (policy plane visibility)
+- `harness context [-v|--json]`: composed context snapshot with provenance, token budget usage, inactive artifacts, and warnings
+- Starlark runtime state: `metrics.incr/get/reset/snapshot`, `ctx.*`, and `cache.*` for in-turn counters and state inspection
+- event stream surface: built-in lifecycle events, `custom.*` events (via `emit(...)`), and `meta.*` governance events for forwarding into external logs, queues, or telemetry backends
+
+This aligns with event-driven persistence: treat hook dispatches and context snapshots as append-only runtime facts that can be exported to your observability stack for auditing, replay, and governance reporting.
 
 ### Priority
 
@@ -966,7 +988,7 @@ result, err := composer.Compose(nil)
 |-----------|--------|
 | Config (Markdown + YAML) | ✅ Stable |
 | Agent loop (parallel tools) | ✅ Stable |
-| Hook system (8 lifecycle events) | ✅ Stable |
+| Hook system (11 lifecycle events + custom/meta namespaces) | ✅ Stable |
 | Tool registry + Starlark engine | ✅ Stable |
 | Delegation (sync + async) | ✅ Stable |
 | Completion client (streaming) | ✅ Stable |
