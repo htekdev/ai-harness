@@ -958,6 +958,39 @@ result, err := composer.Compose(nil)
 // result.ContextBlocks — context from all active non-harness artifacts
 ```
 
+#### Evaluation order + cache boundaries
+
+Each turn follows this deterministic order:
+
+1. **Turn state write**: runtime values are written into turn state (`scripting.SetTurnState`).
+2. **Condition evaluation**: `composer.EvaluateConditions(ctx)` re-evaluates every registered artifact condition and updates cached `Artifact.Active`.
+3. **Composition read**: `composer.Compose(nil)` composes using the cached `Active` state and stable priority ordering.
+4. **Runtime materialization**: the composed result is used for tool exposure, hooks, identity, and context for that turn.
+
+What is evaluated each turn:
+- Every artifact `condition` expression.
+
+What is cached across turns:
+- Parsed/validated artifact definitions (`context`, `tools`, `hooks`, `models`, metadata).
+- Registry priority ordering (reused unless registry contents change).
+- Last known `Artifact.Active` value (overwritten on successful per-turn condition evaluation).
+
+#### Composition + override interaction rules
+
+- **Identity**: active `type: harness` context forms base identity.
+- **Context blocks**: active non-harness artifact context is appended in priority order.
+- **Tools**: merged in priority order; same-named tools are overridden by higher-priority artifacts.
+- **Hooks**: merged additively in priority order (no dedupe/override by name).
+- **Models**: merged additively from active model artifacts.
+- **Overrides**: `type: override` artifacts participate in the same per-turn activation and composition order as other artifacts.
+
+#### Failure modes + performance guardrails
+
+- Missing turn state (`EvaluateConditions` without `WithTurnState`) returns `ErrNilTurnContext`; skip composition for that turn and surface the error.
+- Per-artifact condition evaluation failures are non-fatal: evaluation continues, and failed artifacts keep their previous `Active` value.
+- For deterministic/fast turns, keep conditions side-effect-free and inexpensive; expensive lookups should be precomputed into turn state once per turn and read from `ctx` in condition expressions.
+- If strict fail-closed behavior is needed, use `ComposeWith(WithEvalFn(...))` and treat evaluation errors as hard failures for that compose call.
+
 ## Status
 
 **v0.3.0** — Typed artifact system, context observability, per-turn evaluation engine.
