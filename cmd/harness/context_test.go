@@ -69,12 +69,7 @@ func captureContextStdout(t *testing.T, fn func()) string {
 	}
 	defer func() {
 		_ = r.Close()
-	}()
-	defer func() {
 		os.Stdout = orig
-	}()
-	defer func() {
-		_ = w.Close()
 	}()
 	os.Stdout = w
 
