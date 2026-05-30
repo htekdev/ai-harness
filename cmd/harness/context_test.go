@@ -73,7 +73,10 @@ func captureContextStdout(t *testing.T, fn func()) string {
 
 	_ = w.Close()
 	os.Stdout = orig
-	b, _ := io.ReadAll(r)
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
 	_ = r.Close()
 	return string(b)
 }
