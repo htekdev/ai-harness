@@ -67,17 +67,24 @@ func captureContextStdout(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
+	defer func() {
+		_ = r.Close()
+	}()
+	defer func() {
+		os.Stdout = orig
+	}()
+	defer func() {
+		_ = w.Close()
+	}()
 	os.Stdout = w
 
 	fn()
 
 	_ = w.Close()
-	os.Stdout = orig
 	b, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatalf("read captured stdout: %v", err)
 	}
-	_ = r.Close()
 	return string(b)
 }
 
