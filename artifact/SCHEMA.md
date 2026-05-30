@@ -29,7 +29,7 @@ Required fields:
 
 Optional fields:
 
-- `version` (string): semver-like `X.Y.Z` (or `X.Y` currently accepted by runtime)
+- `version` (string): canonical format is semver `X.Y.Z`; `X.Y` is accepted only for backward compatibility with current runtime behavior.
 - `description` (string)
 - `author` (string)
 - `tags` ([]string)
@@ -75,13 +75,13 @@ In addition to base validation:
 ### Loading
 
 - Parse Markdown frontmatter + body into typed artifact metadata + context.
-- Directory conventions map to expected kinds (`identity.md`, `builtins/`, `plugins/`, `overrides/`) but declared `kind` remains authoritative. Current runtime behavior is to accept mismatches without error; follow-up work should add optional warnings.
+- Directory conventions map to expected kinds (`identity.md`, `builtins/`, `plugins/`, `overrides/`) but declared `kind` remains authoritative. Current runtime behavior is to accept mismatches without error; follow-up work should add optional warnings. Example: a file under `plugins/` declaring `kind: override` is currently accepted, but should be treated as suspicious in validation UX.
 - Validate each artifact before registry registration.
 - Registry rejects invalid entries and enforces dependency validation.
 
 ### Composition
 
-- Compose active artifacts by effective priority (default kind priority unless overridden). Any positive integer override is allowed; the kind values below are defaults, not reserved bands.
+- Compose active artifacts by effective priority (default kind priority unless overridden). Any positive integer override is allowed; the kind values below are defaults, not reserved bands. Recommended convention: stay within 1-200 and use increments of 10 or 20 for readability.
 - Default kind priority order:
   - `override` (100)
   - `harness` (80)
