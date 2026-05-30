@@ -75,13 +75,13 @@ In addition to base validation:
 ### Loading
 
 - Parse Markdown frontmatter + body into typed artifact metadata + context.
-- Directory conventions map to expected kinds (`identity.md`, `builtins/`, `plugins/`, `overrides/`) but declared `kind` remains authoritative.
+- Directory conventions map to expected kinds (`identity.md`, `builtins/`, `plugins/`, `overrides/`) but declared `kind` remains authoritative. Current runtime behavior is to accept mismatches without error; follow-up work should add optional warnings.
 - Validate each artifact before registry registration.
 - Registry rejects invalid entries and enforces dependency validation.
 
 ### Composition
 
-- Compose active artifacts by effective priority (default kind priority unless overridden).
+- Compose active artifacts by effective priority (default kind priority unless overridden). Any positive integer override is allowed; the kind values below are defaults, not reserved bands.
 - Default kind priority order:
   - `override` (100)
   - `harness` (80)
