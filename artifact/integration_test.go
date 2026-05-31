@@ -66,3 +66,29 @@ func TestIntegrationLoadTree(t *testing.T) {
 		t.Errorf("expected 5 active artifacts, got %d", len(result.ActiveArtifacts))
 	}
 }
+
+func TestReferenceCopilotCLILoadTree(t *testing.T) {
+	_, thisFile, _, _ := runtime.Caller(0)
+	repoRoot := filepath.Dir(filepath.Dir(thisFile))
+	refDir := filepath.Join(repoRoot, "examples", "reference", "copilot-cli")
+
+	reg, err := artifact.LoadAndRegister(refDir)
+	if err != nil {
+		t.Fatalf("LoadAndRegister copilot-cli reference: %v", err)
+	}
+
+	if reg.Count() != 2 {
+		t.Fatalf("expected 2 artifacts in copilot-cli reference, got %d", reg.Count())
+	}
+
+	copilotPlugin, ok := reg.Get("copilot-cli-runtime-mapping")
+	if !ok {
+		t.Fatalf("expected copilot-cli-runtime-mapping artifact")
+	}
+	if len(copilotPlugin.Tools) == 0 {
+		t.Fatalf("expected reference plugin to define tools")
+	}
+	if len(copilotPlugin.Hooks) == 0 {
+		t.Fatalf("expected reference plugin to define hooks")
+	}
+}
