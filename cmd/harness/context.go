@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/htekdev/ai-harness/artifact"
+	"github.com/htekdev/ai-harness/compose"
 	"github.com/htekdev/ai-harness/observe"
 )
 
@@ -40,16 +41,15 @@ func cmdContext(args []string) error {
 
 	// Compose artifacts (evaluate conditions)
 	composer := artifact.NewComposer(reg)
-	composed, err := composer.Compose(nil) // nil = all active (no runtime conditions yet)
+	runtimeValues := map[string]any{}
+	if *agent != "" {
+		runtimeValues["agent.name"] = *agent
+	}
+	composed, err := composer.Compose(func(condition string) (bool, error) {
+		return compose.EvaluateCondition(condition, compose.ConditionContext{Values: runtimeValues})
+	})
 	if err != nil {
 		return fmt.Errorf("compose: %w", err)
-	}
-
-	// If agent-specific resolution is requested, filter further
-	if *agent != "" {
-		// For now, note the agent name in output — full agent-specific resolution
-		// will come when agent-scoped artifacts are supported.
-		fmt.Fprintf(os.Stderr, "note: resolving context for agent %q (base composition)\n", *agent)
 	}
 
 	// Build the observability snapshot
