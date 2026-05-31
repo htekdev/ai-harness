@@ -336,6 +336,14 @@ project/
 
 ## Delegation system
 
+Delegation is a first-class harness primitive. The runtime exposes both sync and async delegation as native tools:
+
+- `delegate` (sync)
+- `delegate_async` (spawn background task)
+- `delegate_status` (poll lifecycle state)
+- `delegate_result` (read terminal result/error)
+- `delegate_await` (join one or many async tasks)
+
 ### Recursive delegation (agent trees)
 
 Delegates can spawn their own delegates, creating trees of specialized workers:
@@ -354,17 +362,39 @@ Delegates can spawn their own delegates, creating trees of specialized workers:
 - Retry guard blocks tools after 2 consecutive errors
 - `delegate.pre` / `delegate.post` hooks can block or rewrite at any level
 
+### Sync and async execution relationship
+
+Sync and async delegation share the same sub-agent semantics and execution engine:
+
+- Same request shape (`task` required, plus either `agent` or inline `tools`; optional `hooks`, `model`, `system_prompt`)
+- Same guardrails (depth, iteration budgeting, retry guard, hooks)
+- Same named-agent composition behavior (agent defaults resolved first, request-level overrides merged in)
+
+The difference is runtime delivery:
+
+- `delegate` blocks and returns final output inline
+- `delegate_async` returns immediately with `task_id`; work continues in background
+- `delegate_status` / `delegate_result` / `delegate_await` provide explicit result retrieval and synchronization
+
 ### Async delegation
 
 ```json
 {
+  "tool": "delegate_async",
   "task": "Research the latest Go release notes",
-  "agent": "researcher",
-  "async": true
+  "agent": "researcher"
 }
 ```
 
 Returns a task handle immediately. Query status with `delegate_status`, get results with `delegate_result`, or block with `delegate_await`.
+
+### Orchestration and dependency rules
+
+- No implicit dependencies are inferred between async tasks.
+- Fan-out: launch independent work with multiple `delegate_async` calls.
+- Fan-in: join dependency boundaries explicitly with `delegate_await` (or poll with `delegate_status`).
+- Strict dependency chain: use sync `delegate`, or `delegate_async` + immediate `delegate_await`.
+- Failed tasks remain isolated and report terminal `failed` status through `delegate_result`/`delegate_await`.
 
 ### Custom agents
 
