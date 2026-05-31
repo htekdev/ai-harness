@@ -1008,6 +1008,45 @@ result, err := composer.Compose(nil)
 // result.ContextBlocks — context from all active non-harness artifacts
 ```
 
+## Event-driven persistence (artifact/runtime)
+
+Harness persistence is modeled as an append-only event stream (no in-place mutation).
+
+### Event model
+
+Core event kinds:
+
+- `artifact.upsert` — create/update an artifact projection
+- `artifact.remove` — remove an artifact projection
+- `runtime.turn.start` — mark turn lifecycle start
+- `runtime.turn.end` — mark turn lifecycle end
+- `runtime.hook.dispatch` — record hook dispatch activity
+- `runtime.context.built` — record context observability results (token usage / build point)
+
+Each event carries:
+
+- `id` (stable unique identifier)
+- `parent_id` (lineage pointer; enables branch/replay)
+- `branch` (defaults to `main`)
+- `timestamp`
+- mutation payload (`artifact` or `runtime`)
+
+### Rebuild / replay semantics
+
+- State is derived by replaying events from root → branch head.
+- Branch heads are independent pointers to the newest event in that branch.
+- Branch replay walks `parent_id` links, so alternate histories can coexist for audit/testing.
+- Current state is a projection: artifacts map + latest runtime summary.
+- Full audit history is always available from the append-only log.
+
+### Inspection and debugging
+
+- The event log can be inspected directly (`Events()` in append order).
+- Rebuild a branch projection with `Rebuild(branch)`.
+- Replay is deterministic because events are immutable and ordered by lineage.
+- `runtime.context.built` events connect persistence to `observe.Snapshot` metrics.
+- `runtime.hook.dispatch` events connect persistence to hook lifecycle activity.
+
 ## Status
 
 **v0.3.0** — Typed artifact system, context observability, per-turn evaluation engine.
@@ -1026,6 +1065,7 @@ result, err := composer.Compose(nil)
 | Context observability | ✅ Stable |
 | Per-turn evaluation engine | ✅ Stable |
 | Composition options pattern | ✅ Stable |
+| Event-driven persistence log | ✅ Stable |
 
 ## Contributing
 
