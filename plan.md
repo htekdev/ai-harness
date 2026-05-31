@@ -1,64 +1,40 @@
-# Plan for Adding Asynchronous Functionality
+# tracker: AI Harness vNext backlog (2026-05-21 brainstorm)
 
-This document outlines the implementation plan for extending async capabilities for the repository. Asynchronous functionality ensures performance scalability, enabling efficient task execution and improved user workflows.
+## Context
+This tracker captures Hector's 2026-05-21 AI Harness brainstorm and the follow-up work required to turn it into a real product backlog.
 
----
+## Key thesis
+- minimal core, extreme extensibility
+- typed/composable artifacts instead of vague extensions
+- sub-agents, async, hooks, monitoring, and event-driven persistence as primitives
+- context observability as a differentiator
+- model onboarding without rebuilding the core
 
-## Overview of Current State
+## Linked issues
+- https://github.com/htekdev/ai-harness/issues/5
+- https://github.com/htekdev/ai-harness/issues/6
+- https://github.com/htekdev/ai-harness/issues/7
+- https://github.com/htekdev/ai-harness/issues/8
+- https://github.com/htekdev/ai-harness/issues/9
+- https://github.com/htekdev/ai-harness/issues/10
+- https://github.com/htekdev/ai-harness/issues/11
+- https://github.com/htekdev/ai-harness/issues/12
+- https://github.com/htekdev/ai-harness/issues/13
+- https://github.com/htekdev/ai-harness/issues/14
+- https://github.com/htekdev/ai-harness/issues/15
+- https://github.com/htekdev/ai-harness/issues/16
 
-1. **Existing Async Support**:
-   - The `delegate_async` mechanism partially supports asynchronous delegation but needs further context within broader execution models.
-   - Starlark scripting is used for tool logic, which can run asynchronously using the existing runtime.
+### Long-running primitive follow-ups
+- https://github.com/htekdev/ai-harness/issues/18 (event store)
+- https://github.com/htekdev/ai-harness/issues/19 (runtime handles)
+- https://github.com/htekdev/ai-harness/issues/20 (triggers)
+- https://github.com/htekdev/ai-harness/issues/21 (scheduling primitive)
+- https://github.com/htekdev/ai-harness/issues/22 (watcher adapters)
 
-2. **Primary Areas of Improvement**:
-   - Delegation workflows (`delegation`): Enhance async task stores to handle more extensive and concurrent delegations across sessions.
-   - Tool integrations (`tools`): Refactor heavily I/O-bound tools like file or HTTP utilities to operate asynchronously.
-   - Hooks/lifecycle governance (`hooks`): Support async hooks to enable non-linear behavior monitoring between sessions.
+## Working design direction
+Durable event stream + projections + triggers + leased runtimes + schedule data.
 
----
+Initial scaffold target: a file-backed events package on the `copilot/long-running-primitives` branch.
 
-## Objectives
-
-1. **Expand Async Handling Across the Framework**:
-   - Implement mechanisms for queueing, awaiting, and managing long-running tool tasks.
-   - Integrate models that streamline communication across async sub-agents.
-
-2. **Core Changes**
-   - Refactor the `agent` turn loop to discriminate between blocking sync and non-blocking async processes dynamically.
-
-3. **Backward Compatibility**:
-   - Retain all synchronous versions of tools and hooks for seamless fallback modes.
-
----
-
-## Implementation Plan
-
-### Step 1: Analysis of Existing Codebase
-- Enumerate and audit tools like `fs.read`, `http.get/post`, `delegate`, and hooks.
-- Mark areas prone to blocking (e.g., external API clients).
-- Investigate current delegation limitations for async scaling.
-
-### Step 2: Async Delegation Storage
-- Add asynchronous messaging/queue for long-running delegations (`delegate_async`). Tasks will return immediately while status handlers like `await` and `result` enable lifecycles.
-
----
-
-### Step 3: Hook System Enhancements
-- Modify hooks to support async/non-blocking scripts to allow Starlark filtering of concurrent events.
-
----
-
-### Step 6: Refactor Tool Logic
-
-#### Tool Audit
-- Identify known tools like HTTP endpoint interaction (e.g., `http.get`) or disk-bound tasks (`fs.read`) that can default to async versions.
-
-#### Starlark Extension
-- Develop alternate async-compatible runtime/retry instrumentation models for executing complex tool retry bounds while calling async third-party libraries.
-
----
-
-### Deliverables
-
-- **Enhancements/asynchronous APIs for tasks.**
-- Agent turn-polling framing coordination intended to prehandle.
+## Notes
+Pi is the closest public benchmark for the minimal-harness philosophy, but AI Harness should go further on typed artifacts, per-turn evaluation, conditional composition, and explicit context observability.
