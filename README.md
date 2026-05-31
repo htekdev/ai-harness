@@ -1242,6 +1242,28 @@ After `EvaluateConditions()` runs, each artifact's `Active` field reflects wheth
 
 The `Composer` merges all active artifacts into a unified view using priority-based resolution.
 
+### Deterministic composition and merge rules
+
+Composition is deterministic and fully inspectable:
+
+1. Artifacts are sorted by `EffectivePriority()` ascending (lower first).
+2. If priorities tie, artifacts are ordered alphabetically by `name` (stable tie-break).
+3. `ComposedResult.ActiveArtifacts` returns the exact ordered list that participated.
+
+Field merge behavior is explicit:
+
+- `Identity`: set from `harness` context.
+- `ContextBlocks`: appends non-harness context blocks in composition order.
+- `Tools`: deduplicated by tool name; later (higher-priority) artifacts override earlier definitions.
+- `Hooks`: appended in composition order (no hidden dedup/override).
+- `Models`: appended in composition order.
+
+Conflict resolution:
+
+- Duplicate artifact names are rejected at registration time.
+- Only one `harness` artifact may be registered.
+- Tool-name collisions are resolved by deterministic priority order (highest wins).
+
 ### Basic usage
 
 ```go
