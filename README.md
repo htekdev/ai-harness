@@ -645,16 +645,65 @@ hooks:
 
 ### Full schema
 
-#### `model`
+#### `type: model` artifact
+
+New providers and models should be onboarded as artifacts in `.harness/models/*.md`, not by editing core composition code.
+
+```markdown
+---
+name: openai-models
+type: model
+version: "1.0.0"
+description: OpenAI model catalog for this harness
+models:
+  - name: gpt-4o
+    provider: openai
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    temperature: 0.2
+    max_tokens: 16384
+    capabilities:
+      streaming: true
+      tool_calling: true
+      vision: true
+      json_mode: true
+---
+
+Optional markdown body describing when to use these models.
+```
+
+Model artifacts may carry standard artifact metadata (`name`, `version`, `description`, `tags`, `depends_on`, `condition`, `priority`) plus a `models:` list. They may include markdown body context, but they do **not** define tools or hooks.
+
+#### `models[]`
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `provider` | string | no | Defaults to `openai` |
-| `name` | string | yes | Model name; validated as non-empty |
-| `max_tokens` | int | yes | Must be greater than 0 |
-| `temperature` | float | yes | Must be between 0 and 2 |
-| `base_url` | string | no | Overrides provider-based default |
-| `api_key_env` | string | no | Defaults to `GITHUB_TOKEN` |
+| `name` | string | yes | Model identifier; validated as non-empty |
+| `provider` | string | yes | Provider slug such as `openai`, `copilot`, or `anthropic` |
+| `api_key_env` | string | no | Environment variable containing credentials |
+| `base_url` | string | no | Provider endpoint override |
+| `temperature` | float | no | Declarative default sampling setting; must stay between 0 and 2 when used |
+| `max_tokens` | int | yes | Declarative response/token limit; must be greater than 0 |
+| `capabilities.streaming` | bool | no | Model supports streamed responses |
+| `capabilities.tool_calling` | bool | no | Model can call harness tools |
+| `capabilities.vision` | bool | no | Model accepts image input |
+| `capabilities.json_mode` | bool | no | Model can be constrained to structured JSON output |
+
+#### Model onboarding flow
+
+1. Create a new artifact under `.harness/models/<provider-or-team>.md`.
+2. Add one or more `models[]` entries describing provider wiring, defaults, limits, and capabilities.
+3. Optionally gate the artifact with `condition:` or organize it with `tags:` / `depends_on:`.
+4. Run `harness artifacts -v` to confirm the artifact is discovered and the expected models are registered.
+5. No core rewrite should be necessary for ordinary model/provider additions; only add Go code when a provider needs entirely new transport/auth/runtime semantics.
+
+#### Interaction with harness artifacts and overrides
+
+- `model` artifacts load from `.harness/models/*.md` and compose at the lowest priority, contributing only `result.Models`.
+- `harness` artifacts define the base identity/system prompt.
+- `builtin` and `plugin` artifacts define tools and hooks.
+- `override` artifacts can change context, tools, hooks, or activation conditions around model artifacts, but they do not carry `models:` themselves.
+- Multiple active model artifacts compose by concatenating their `models[]`, so keep names distinct and use `condition:` for environment-specific catalogs.
 
 #### `context`
 
@@ -955,6 +1004,7 @@ result, err := composer.Compose(nil)
 // result.Tools       — deduplicated, priority-ordered tools
 // result.Hooks       — all hooks from active artifacts
 // result.Identity    — merged system prompt from harness artifact
+// result.Models      — model catalog from active model artifacts
 // result.ContextBlocks — context from all active non-harness artifacts
 ```
 

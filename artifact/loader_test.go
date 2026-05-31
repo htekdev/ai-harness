@@ -89,6 +89,47 @@ This plugin provides security scanning capabilities.
 	}
 }
 
+func TestParseModelArtifactCapabilities(t *testing.T) {
+	input := []byte(`---
+name: openai-models
+type: model
+description: Declarative model catalog
+models:
+  - name: gpt-4o
+    provider: openai
+    max_tokens: 16384
+    temperature: 0.2
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    capabilities:
+      streaming: true
+      tool_calling: true
+      vision: true
+      json_mode: true
+---
+
+# OpenAI catalog
+
+Onboard models here instead of changing Go code.
+`)
+
+	a, err := Parse(input, "test/openai-models.md")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	if a.Metadata.Type != TypeModel {
+		t.Fatalf("type = %q, want %q", a.Metadata.Type, TypeModel)
+	}
+	if len(a.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(a.Models))
+	}
+	model := a.Models[0]
+	if !model.Capabilities.Streaming || !model.Capabilities.ToolCalling || !model.Capabilities.Vision || !model.Capabilities.JSONMode {
+		t.Fatalf("unexpected capabilities: %+v", model.Capabilities)
+	}
+}
+
 func TestParseInvalidType(t *testing.T) {
 	input := []byte(`---
 name: bad
