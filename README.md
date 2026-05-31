@@ -1185,6 +1185,8 @@ ai-harness/
 
 Artifacts are the fundamental building blocks of a harness. Each artifact is a single Markdown file that bundles identity, tools, hooks, and models into one composable unit.
 
+For the versioned base schema/design model (`harness_artifact`, `harness`, `builtin`, `plugin`, `override`), see [`artifact/SCHEMA.md`](artifact/SCHEMA.md).
+
 ### Artifact Types (priority order)
 
 | Type | Priority | Purpose |
