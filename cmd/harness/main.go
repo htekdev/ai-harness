@@ -5,16 +5,25 @@
 //
 //	harness <command> [flags]
 //
-// Commands:
+// Golden path (install → scaffold → init → develop → validate → deploy → inspect):
 //
+//	scaffold   Create a new harness project in a new directory
+//	init       Initialize a harness in the current directory
+//	validate   Validate harness configuration (supports --dry-run via deploy)
 //	run        Start an interactive harness session
-//	init       Scaffold a new harness project
-//	validate   Validate harness configuration
+//	deploy     Run the harness non-interactively (CI/CD, single prompt in/out)
+//	inspect    Snapshot of harness state: tools, hooks, agents, artifacts
+//
+// Develop commands:
+//
 //	tools      List registered tools
 //	hooks      List registered hooks
 //	agents     List configured agents
 //	artifacts  List typed artifacts in the registry
 //	context    Show context window observability (what's active and why)
+//
+// Other:
+//
 //	version    Print version information
 package main
 
@@ -40,6 +49,11 @@ func main() {
 	args := os.Args[2:]
 
 	switch cmd {
+	case "scaffold":
+		if err := cmdScaffold(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "run":
 		if err := cmdRun(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -52,6 +66,16 @@ func main() {
 		}
 	case "validate":
 		if err := cmdValidate(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "deploy":
+		if err := cmdDeploy(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "inspect":
+		if err := cmdInspect(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -97,27 +121,37 @@ func printUsage() {
 Usage:
   harness <command> [flags]
 
-Commands:
-  run        Start an interactive harness session
-  init       Scaffold a new harness project
+Golden path  (install → scaffold → init → develop → validate → deploy → inspect):
+  scaffold   Create a new harness project in a new directory
+  init       Initialize a harness in the current directory
   validate   Validate harness configuration
+  run        Start an interactive harness session
+  deploy     Run the harness non-interactively (CI/CD, single prompt in/out)
+  inspect    Snapshot of runtime state: tools, hooks, agents, artifacts
+
+Develop:
   tools      List registered tools
   hooks      List registered hooks
   agents     List configured agents
   artifacts  List typed artifacts in the registry
   context    Show context window observability snapshot
+
+Other:
   version    Print version information
 
 Flags:
   -c, --config <path>   Path to harness config (default: harness.md or harness.yaml)
 
 Examples:
-  harness init my-agent
-  harness run
-  harness validate
-  harness context --verbose
-  harness tools
-  harness hooks --verbose
+  harness scaffold my-agent            # create project
+  harness init                         # initialize in-place
+  harness validate                     # verify configuration
+  harness run                          # interactive session
+  harness deploy --input "say hello"   # single-shot run
+  harness deploy --dry-run             # validate without LLM call
+  harness inspect                      # state snapshot
+  harness inspect --verbose            # detailed snapshot
+  harness context --verbose            # context window breakdown
 
 Learn more: https://github.com/htekdev/ai-harness
 `)
