@@ -80,6 +80,30 @@ Messaging framework (reuse for docs/launch copy):
 - **Three pillars:** Minimal core • Composable artifacts • Governance by default
 - **30-second pitch:** “AI Harness helps teams move agent behavior into files they can review, validate, and govern. Instead of a large opaque framework, it provides a compact runtime with explicit lifecycle controls.”
 
+### Pi benchmark: shared philosophy, different depth
+
+Pi is the strongest public benchmark for a minimal harness and validates the same core philosophy: keep the runtime small and push flexibility to the edges.
+
+| Dimension | Pi (public benchmark) | AI Harness |
+| --- | --- | --- |
+| Core stance | Minimal terminal harness, intentionally extensible rather than feature-heavy ([source][pi-readme], [source][pi-philosophy]) | Minimal, inspectable runtime with governance as a product constraint |
+| Edge model | Extend with TypeScript extensions, skills, prompt templates, and packages ([source][pi-customization]) | Compose behavior from typed Markdown artifacts (`harness.md` + `.harness/**`) with deterministic merge rules |
+| Built-in scope | Explicitly omits sub-agents and plan mode from core; build/add them at the edge ([source][pi-philosophy]) | Ships bounded delegation/hook governance in-core so safe autonomy is architectural |
+| Composition & activation | Extensibility is centered on packages/extensions/skills ([source][pi-customization]) | Typed artifact registry + per-turn condition evaluation + deterministic composition ([Typed Artifact System](#typed-artifact-system), [Per-turn evaluation](#per-turn-evaluation), [Composition & Options Pattern](#composition--options-pattern)) |
+| Context visibility | Project context files (`AGENTS.md` / `SYSTEM.md`) load into startup context ([source][pi-context-files]) | First-class context observability via `harness context` and runtime context events (`runtime.context.built`) ([source](#event-driven-persistence-artifactruntime)) |
+
+Where AI Harness goes further without being reactive: keep the same tiny-core discipline, but formalize runtime behavior as typed artifacts with per-turn evaluation and explicit context observability.
+
+Launch/copy framing:
+- **Benchmark line:** “Pi proves minimal harnesses work. AI Harness applies that minimal-core discipline to governance-heavy team workflows.”
+- **Differentiator line:** “Same tiny-core philosophy, plus typed artifacts, per-turn conditional composition, and context observability as first-class runtime contracts.”
+- **Tone guardrail:** Compare on architecture choices and workflow depth, not winner/loser language.
+
+[pi-readme]: https://github.com/earendil-works/pi/tree/main/packages/coding-agent
+[pi-philosophy]: https://github.com/earendil-works/pi/tree/main/packages/coding-agent#philosophy
+[pi-customization]: https://github.com/earendil-works/pi/tree/main/packages/coding-agent#customization
+[pi-context-files]: https://github.com/earendil-works/pi/tree/main/packages/coding-agent#context-files
+
 ### Core Philosophy
 
 > Make the right thing to do the easy thing to do.
