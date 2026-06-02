@@ -48,6 +48,20 @@ type Snapshot struct {
 
 	// Warnings surfaces issues like token budget overrun or missing dependencies.
 	Warnings []string
+
+	// Compaction captures compaction observability when a compaction policy is active.
+	Compaction *CompactionState
+}
+
+// CompactionState reports the current compaction evaluation state.
+type CompactionState struct {
+	TokenPercent      float64
+	Triggered         bool
+	AppliedStrategies []string
+	AlwaysKept        []string
+	Summarized        []string
+	Dropped           []string
+	LastCompactedTime time.Time
 }
 
 // Section represents a contiguous block of context with provenance metadata.
@@ -240,6 +254,28 @@ func (b *Builder) Build(reg *artifact.Registry, composed *artifact.ComposedResul
 				float64(snap.TokensUsed)/float64(b.budget)*100))
 	}
 
+	// Evaluate compaction state against current token usage.
+	if composed.Compaction != nil {
+		tokenPct := 0.0
+		if b.budget > 0 {
+			tokenPct = float64(snap.TokensUsed) / float64(b.budget)
+		}
+		outcome := composed.Compaction.Execute(artifact.CompactionState{
+			TokenPercent: tokenPct,
+		})
+		snap.Compaction = &CompactionState{
+			TokenPercent:      tokenPct,
+			Triggered:         len(outcome.Strategies) > 0,
+			AppliedStrategies: outcome.Strategies,
+			AlwaysKept:        outcome.AlwaysKept,
+			Summarized:        outcome.Summarized,
+			Dropped:           outcome.Dropped,
+		}
+		if snap.Compaction.Triggered {
+			snap.Compaction.LastCompactedTime = outcome.AppliedAt
+		}
+	}
+
 	return snap
 }
 
@@ -347,6 +383,18 @@ func (snap *Snapshot) formatSummary() string {
 		}
 	}
 
+	if snap.Compaction != nil {
+		sb.WriteString("\n  Compaction:\n")
+		sb.WriteString(fmt.Sprintf("    active: %t\n", snap.Compaction.Triggered))
+		sb.WriteString(fmt.Sprintf("    fill: %.1f%%\n", snap.Compaction.TokenPercent*100))
+		if len(snap.Compaction.AppliedStrategies) > 0 {
+			sb.WriteString(fmt.Sprintf("    strategies: %s\n", strings.Join(snap.Compaction.AppliedStrategies, ", ")))
+		}
+		if len(snap.Compaction.Dropped) > 0 {
+			sb.WriteString(fmt.Sprintf("    dropped: %s\n", strings.Join(snap.Compaction.Dropped, ", ")))
+		}
+	}
+
 	return sb.String()
 }
 
@@ -421,6 +469,24 @@ func (snap *Snapshot) formatDetailed() string {
 		}
 	}
 
+	if snap.Compaction != nil {
+		sb.WriteString("\nCompaction:\n")
+		sb.WriteString(fmt.Sprintf("  Triggered: %t\n", snap.Compaction.Triggered))
+		sb.WriteString(fmt.Sprintf("  Fill: %.1f%%\n", snap.Compaction.TokenPercent*100))
+		if len(snap.Compaction.AppliedStrategies) > 0 {
+			sb.WriteString(fmt.Sprintf("  Strategies: %s\n", strings.Join(snap.Compaction.AppliedStrategies, ", ")))
+		}
+		if len(snap.Compaction.AlwaysKept) > 0 {
+			sb.WriteString(fmt.Sprintf("  Always keep: %s\n", strings.Join(snap.Compaction.AlwaysKept, ", ")))
+		}
+		if len(snap.Compaction.Summarized) > 0 {
+			sb.WriteString(fmt.Sprintf("  Summarized: %s\n", strings.Join(snap.Compaction.Summarized, ", ")))
+		}
+		if len(snap.Compaction.Dropped) > 0 {
+			sb.WriteString(fmt.Sprintf("  Dropped: %s\n", strings.Join(snap.Compaction.Dropped, ", ")))
+		}
+	}
+
 	return sb.String()
 }
 
@@ -461,8 +527,41 @@ func (snap *Snapshot) formatJSON() string {
 		}
 		sb.WriteString(fmt.Sprintf("%q", w))
 	}
-	sb.WriteString("]\n")
+	sb.WriteString("],\n")
+	if snap.Compaction == nil {
+		sb.WriteString("  \"compaction\": null\n")
+	} else {
+		sb.WriteString("  \"compaction\": {\n")
+		sb.WriteString(fmt.Sprintf("    \"token_percent\": %.4f,\n", snap.Compaction.TokenPercent))
+		sb.WriteString(fmt.Sprintf("    \"triggered\": %t,\n", snap.Compaction.Triggered))
+		if snap.Compaction.LastCompactedTime.IsZero() {
+			sb.WriteString("    \"last_compacted_time\": null,\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("    \"last_compacted_time\": %q,\n", snap.Compaction.LastCompactedTime.Format(time.RFC3339)))
+		}
+		sb.WriteString(fmt.Sprintf("    \"strategies\": %s,\n", jsonArray(snap.Compaction.AppliedStrategies)))
+		sb.WriteString(fmt.Sprintf("    \"always_keep\": %s,\n", jsonArray(snap.Compaction.AlwaysKept)))
+		sb.WriteString(fmt.Sprintf("    \"summarized\": %s,\n", jsonArray(snap.Compaction.Summarized)))
+		sb.WriteString(fmt.Sprintf("    \"dropped\": %s\n", jsonArray(snap.Compaction.Dropped)))
+		sb.WriteString("  }\n")
+	}
 	sb.WriteString("}\n")
 
+	return sb.String()
+}
+
+func jsonArray(values []string) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("%q", v))
+	}
+	sb.WriteString("]")
 	return sb.String()
 }

@@ -12,18 +12,22 @@ import (
 
 // artifactFrontmatter is the YAML frontmatter for an artifact file.
 type artifactFrontmatter struct {
-	Name             string     `yaml:"name"`
-	Type             string     `yaml:"type"`
-	Version          string     `yaml:"version,omitempty"`
-	Description      string     `yaml:"description,omitempty"`
-	Author           string     `yaml:"author,omitempty"`
-	Tags             []string   `yaml:"tags,omitempty"`
-	DependsOn        []string   `yaml:"depends_on,omitempty"`
-	Condition        string     `yaml:"condition,omitempty"`
-	Tools            []ToolDef  `yaml:"tools,omitempty"`
-	Hooks            []HookDef  `yaml:"hooks,omitempty"`
-	Models           []ModelDef `yaml:"models,omitempty"`
-	PriorityOverride int        `yaml:"priority,omitempty"`
+	Name             string                        `yaml:"name"`
+	Type             string                        `yaml:"type"`
+	Version          string                        `yaml:"version,omitempty"`
+	Description      string                        `yaml:"description,omitempty"`
+	Author           string                        `yaml:"author,omitempty"`
+	Tags             []string                      `yaml:"tags,omitempty"`
+	DependsOn        []string                      `yaml:"depends_on,omitempty"`
+	Condition        string                        `yaml:"condition,omitempty"`
+	Tools            []ToolDef                     `yaml:"tools,omitempty"`
+	Hooks            []HookDef                     `yaml:"hooks,omitempty"`
+	Models           []ModelDef                    `yaml:"models,omitempty"`
+	Compaction       CompactionDef                 `yaml:"compaction,omitempty"`
+	Triggers         []CompactionTrigger           `yaml:"triggers,omitempty"`
+	Retention        CompactionRetention           `yaml:"retention,omitempty"`
+	Strategies       map[string]CompactionStrategy `yaml:"strategies,omitempty"`
+	PriorityOverride int                           `yaml:"priority,omitempty"`
 }
 
 // LoadFile reads and parses a single artifact file.
@@ -70,8 +74,18 @@ func Parse(data []byte, source string) (*Artifact, error) {
 		Tools:            fm.Tools,
 		Hooks:            fm.Hooks,
 		Models:           fm.Models,
+		Compaction:       fm.Compaction,
 		Source:           source,
 		PriorityOverride: fm.PriorityOverride,
+	}
+	if len(fm.Triggers) > 0 {
+		a.Compaction.Triggers = fm.Triggers
+	}
+	if len(fm.Retention.AlwaysKeep) > 0 || len(fm.Retention.Summarize) > 0 || len(fm.Retention.Drop) > 0 {
+		a.Compaction.Retention = fm.Retention
+	}
+	if len(fm.Strategies) > 0 {
+		a.Compaction.Strategies = fm.Strategies
 	}
 
 	return a, nil
@@ -121,7 +135,7 @@ func LoadTree(baseDir string) ([]*Artifact, error) {
 	dirs := []string{
 		baseDir,
 	}
-	subdirs := []string{"builtins", "plugins", "models", "overrides"}
+	subdirs := []string{"builtins", "plugins", "models", "compaction", "overrides"}
 	for _, sub := range subdirs {
 		dirs = append(dirs, filepath.Join(baseDir, sub))
 	}

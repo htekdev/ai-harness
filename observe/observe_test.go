@@ -122,6 +122,33 @@ func buildTestRegistry(t *testing.T) (*artifact.Registry, *artifact.ComposedResu
 		t.Fatalf("register conditional: %v", err)
 	}
 
+	compaction := &artifact.Artifact{
+		Metadata: artifact.Metadata{
+			Name:    "review-compaction",
+			Type:    artifact.TypeCompaction,
+			Version: "1.0.0",
+		},
+		Source: ".harness/compaction/review.md",
+		Compaction: artifact.CompactionDef{
+			Triggers: []artifact.CompactionTrigger{
+				{TokenThreshold: 0.0001, Strategy: "truncate"},
+				{TokenThreshold: 0.0002, Strategy: "summarize"},
+			},
+			Retention: artifact.CompactionRetention{
+				AlwaysKeep: []string{"system_prompt"},
+				Summarize:  []string{"tool_results"},
+				Drop:       []string{"exploratory_logs"},
+			},
+			Strategies: map[string]artifact.CompactionStrategy{
+				"truncate":  {Description: "trim"},
+				"summarize": {Prompt: "summarize"},
+			},
+		},
+	}
+	if err := reg.Register(compaction); err != nil {
+		t.Fatalf("register compaction: %v", err)
+	}
+
 	// Compose without the conditional artifact active
 	composer := artifact.NewComposer(reg)
 	composed, err := composer.Compose(func(condition string) (bool, error) {
@@ -144,11 +171,11 @@ func TestBuildSnapshot(t *testing.T) {
 		if snap.TokenBudget != 128000 {
 			t.Errorf("expected budget 128000, got %d", snap.TokenBudget)
 		}
-		if snap.ArtifactCount != 4 {
-			t.Errorf("expected 4 total artifacts, got %d", snap.ArtifactCount)
+		if snap.ArtifactCount != 5 {
+			t.Errorf("expected 5 total artifacts, got %d", snap.ArtifactCount)
 		}
-		if snap.ActiveArtifactCount != 3 {
-			t.Errorf("expected 3 active artifacts, got %d", snap.ActiveArtifactCount)
+		if snap.ActiveArtifactCount != 4 {
+			t.Errorf("expected 4 active artifacts, got %d", snap.ActiveArtifactCount)
 		}
 		if snap.Timestamp.IsZero() {
 			t.Error("timestamp should not be zero")
@@ -195,6 +222,21 @@ func TestBuildSnapshot(t *testing.T) {
 			if s.TokenEstimate > 0 && s.TokenPercent <= 0 {
 				t.Errorf("section %q has tokens=%d but percent=%.2f", s.Name, s.TokenEstimate, s.TokenPercent)
 			}
+		}
+	})
+
+	t.Run("compaction state", func(t *testing.T) {
+		if snap.Compaction == nil {
+			t.Fatal("expected compaction state to be present")
+		}
+		if !snap.Compaction.Triggered {
+			t.Fatal("expected compaction to be triggered with low thresholds")
+		}
+		if len(snap.Compaction.AppliedStrategies) == 0 {
+			t.Fatal("expected applied compaction strategies")
+		}
+		if len(snap.Compaction.Dropped) == 0 || snap.Compaction.Dropped[0] != "exploratory_logs" {
+			t.Fatalf("unexpected compaction dropped list: %+v", snap.Compaction.Dropped)
 		}
 	})
 }
@@ -316,6 +358,7 @@ func TestSnapshotFormatJSON(t *testing.T) {
 		"\"tokens_used\":",
 		"\"sections\":",
 		"\"warnings\":",
+		"\"compaction\":",
 	}
 	for _, check := range checks {
 		if !strings.Contains(output, check) {

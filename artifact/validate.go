@@ -33,6 +33,8 @@ func Validate(a *Artifact) error {
 		issues = append(issues, validateOverride(a)...)
 	case TypeHarness:
 		issues = append(issues, validateHarness(a)...)
+	case TypeCompaction:
+		issues = append(issues, ValidateCompaction(a)...)
 	case TypeBuiltin:
 		issues = append(issues, validateBuiltin(a)...)
 	case TypePlugin:

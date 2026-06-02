@@ -8,6 +8,7 @@
 //
 //   - override: Project-local overrides that supersede any other artifact
 //   - harness: The root harness identity and policy artifact
+//   - compaction: Context compaction policy and strategy pipeline
 //   - builtin: Core capabilities shipped with the harness runtime
 //   - plugin: Third-party or user-authored capability bundles
 //   - model: Provider/model onboarding artifacts
@@ -31,6 +32,10 @@ const (
 	// Priority: 80. Exactly one harness artifact per project.
 	TypeHarness Type = "harness"
 
+	// TypeCompaction is a context compaction policy artifact.
+	// Priority: 70. Defines trigger/strategy/retention behavior.
+	TypeCompaction Type = "compaction"
+
 	// TypeBuiltin is a core capability shipped with the runtime.
 	// Priority: 60. Read-only; cannot be modified by users.
 	TypeBuiltin Type = "builtin"
@@ -46,7 +51,7 @@ const (
 
 // AllTypes returns all valid artifact types in priority order (highest first).
 func AllTypes() []Type {
-	return []Type{TypeOverride, TypeHarness, TypeBuiltin, TypePlugin, TypeModel}
+	return []Type{TypeOverride, TypeHarness, TypeCompaction, TypeBuiltin, TypePlugin, TypeModel}
 }
 
 // Priority returns the composition priority for this artifact type.
@@ -57,6 +62,8 @@ func (t Type) Priority() int {
 		return 100
 	case TypeHarness:
 		return 80
+	case TypeCompaction:
+		return 70
 	case TypeBuiltin:
 		return 60
 	case TypePlugin:
@@ -71,7 +78,7 @@ func (t Type) Priority() int {
 // Valid returns true if this is a recognized artifact type.
 func (t Type) Valid() bool {
 	switch t {
-	case TypeOverride, TypeHarness, TypeBuiltin, TypePlugin, TypeModel:
+	case TypeOverride, TypeHarness, TypeCompaction, TypeBuiltin, TypePlugin, TypeModel:
 		return true
 	default:
 		return false
@@ -87,7 +94,7 @@ func (t Type) String() string {
 func ParseType(s string) (Type, error) {
 	t := Type(strings.TrimSpace(strings.ToLower(s)))
 	if !t.Valid() {
-		return "", fmt.Errorf("unknown artifact type %q; valid types: override, harness, builtin, plugin, model", s)
+		return "", fmt.Errorf("unknown artifact type %q; valid types: override, harness, compaction, builtin, plugin, model", s)
 	}
 	return t, nil
 }
@@ -140,6 +147,9 @@ type Artifact struct {
 
 	// Models defined by this artifact (only valid for TypeModel).
 	Models []ModelDef `yaml:"models,omitempty"`
+
+	// Compaction policy defined by this artifact (only valid for TypeCompaction).
+	Compaction CompactionDef `yaml:"compaction,omitempty"`
 
 	// Source is the file path this artifact was loaded from.
 	Source string `yaml:"-"`

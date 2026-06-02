@@ -348,3 +348,107 @@ func TestCompose_BackwardCompat_WithActiveField(t *testing.T) {
 		t.Error("Active should default to true after registration")
 	}
 }
+
+func TestCompose_CompactionMergeAndOverride(t *testing.T) {
+	reg := NewRegistry()
+	base := &Artifact{
+		Metadata: Metadata{Name: "base-compaction", Type: TypeCompaction},
+		Compaction: CompactionDef{
+			Triggers: []CompactionTrigger{
+				{TokenThreshold: 0.80, Strategy: "truncate"},
+				{TokenThreshold: 0.90, Strategy: "summarize"},
+			},
+			Retention: CompactionRetention{
+				AlwaysKeep: []string{"system_prompt", "active_artifacts"},
+				Summarize:  []string{"tool_results"},
+			},
+			Strategies: map[string]CompactionStrategy{
+				"truncate":  {Description: "trim"},
+				"summarize": {Prompt: "base summarize"},
+			},
+		},
+	}
+	override := &Artifact{
+		Metadata: Metadata{Name: "project-compaction", Type: TypeCompaction},
+		Compaction: CompactionDef{
+			Triggers: []CompactionTrigger{
+				{TurnThreshold: 30, Strategy: "checkpoint"},
+			},
+			Retention: CompactionRetention{
+				Drop: []string{"exploratory_logs"},
+			},
+			Strategies: map[string]CompactionStrategy{
+				"summarize":  {Prompt: "project summarize"},
+				"checkpoint": {Description: "checkpoint"},
+			},
+		},
+		PriorityOverride: 95,
+	}
+	for _, a := range []*Artifact{base, override} {
+		if err := reg.Register(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	composer := NewComposer(reg)
+	result, err := composer.Compose(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Compaction == nil {
+		t.Fatal("expected merged compaction policy")
+	}
+	if len(result.Compaction.Triggers) != 3 {
+		t.Fatalf("expected 3 merged triggers, got %d", len(result.Compaction.Triggers))
+	}
+	if got := result.Compaction.Strategies["summarize"].Prompt; got != "project summarize" {
+		t.Fatalf("expected summarize strategy override, got %q", got)
+	}
+	if len(result.Compaction.Retention.Drop) != 1 || result.Compaction.Retention.Drop[0] != "exploratory_logs" {
+		t.Fatalf("expected retention drop from override, got %+v", result.Compaction.Retention.Drop)
+	}
+}
+
+func TestCompose_CompactionConditionGating(t *testing.T) {
+	reg := NewRegistry()
+	review := &Artifact{
+		Metadata:  Metadata{Name: "review-compaction", Type: TypeCompaction},
+		Condition: `ctx.get("mode", "") == "review"`,
+		Compaction: CompactionDef{
+			Triggers:   []CompactionTrigger{{TokenThreshold: 0.9, Strategy: "summarize"}},
+			Strategies: map[string]CompactionStrategy{"summarize": {Prompt: "review mode"}},
+		},
+	}
+	code := &Artifact{
+		Metadata:  Metadata{Name: "code-compaction", Type: TypeCompaction},
+		Condition: `ctx.get("mode", "") == "code"`,
+		Compaction: CompactionDef{
+			Triggers:   []CompactionTrigger{{TokenThreshold: 0.9, Strategy: "truncate"}},
+			Strategies: map[string]CompactionStrategy{"truncate": {Description: "code mode"}},
+		},
+	}
+	for _, a := range []*Artifact{review, code} {
+		if err := reg.Register(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	composer := NewComposer(reg)
+	ctx := scripting.WithTurnState(context.Background())
+	scripting.SetTurnState(ctx, "mode", "review")
+	if err := composer.EvaluateConditions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	result, err := composer.Compose(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Compaction == nil {
+		t.Fatal("expected compaction policy for review mode")
+	}
+	if _, ok := result.Compaction.Strategies["summarize"]; !ok {
+		t.Fatal("expected review summarize strategy")
+	}
+	if _, ok := result.Compaction.Strategies["truncate"]; ok {
+		t.Fatal("did not expect code strategy in review mode")
+	}
+}
