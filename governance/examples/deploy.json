@@ -49,12 +49,20 @@
   },
   "trace_rules": [
     {
-      "id": "no-deploy-without-test",
-      "description": "Deny deploy tools if no test call has been recorded this session.",
+      "id": "remind-test-first",
+      "description": "Inject a reminder when entering the deploying state to confirm tests passed. The state machine guards enforce this structurally; this rule adds a prompt-level reinforcement.",
       "pattern": "COUNT Bash LT 1",
       "scope": "deploying",
-      "enforcement": "deny",
-      "payload": "No test execution recorded. Run tests before deploying."
+      "enforcement": "inject",
+      "payload": "Reminder: confirm that all tests passed before proceeding with deployment."
+    },
+    {
+      "id": "no-redeploy-without-retest",
+      "description": "Deny a second deploy attempt if no new test run has occurred since the last deploy command (detect rerun loops without retesting).",
+      "pattern": "LAST 2 CALLS Bash",
+      "scope": "deploying",
+      "enforcement": "inject",
+      "payload": "Two consecutive Bash calls in deploying state detected. Ensure you are not rerunning a failed deploy without re-testing first."
     }
   ]
 }
