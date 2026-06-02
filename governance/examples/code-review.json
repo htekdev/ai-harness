@@ -1,0 +1,51 @@
+{
+  "id": "code-review-governance",
+  "version": "1.0.0",
+  "description": "Governance workflow for AI Harness code review agent. Demonstrates schema alignment with Statewright and AI Harness temporal extensions.",
+  "initial": "reading",
+  "default_allowed_tools": ["Read", "Grep", "Glob"],
+  "states": {
+    "reading": {
+      "allowed_tools": ["Read", "Grep", "Glob"],
+      "max_iterations": 15,
+      "on": {
+        "ANALYSIS_COMPLETE": "reviewing"
+      }
+    },
+    "reviewing": {
+      "allowed_tools": ["Read", "Grep"],
+      "max_iterations": 10,
+      "on": {
+        "ISSUES_FOUND": "reporting",
+        "CLEAN":       "completed"
+      }
+    },
+    "reporting": {
+      "allowed_tools": ["Read"],
+      "requires_approval": false,
+      "on": {
+        "REPORTED": "completed"
+      }
+    },
+    "completed": {
+      "type": "final"
+    }
+  },
+  "guards": {},
+  "trace_rules": [
+    {
+      "id": "read-loop-warning",
+      "description": "Warn when the agent reads the same files repeatedly without progressing.",
+      "pattern": "LAST 8 CALLS Read",
+      "enforcement": "inject",
+      "payload": "You have called Read 8 times consecutively. Review your analysis and emit ANALYSIS_COMPLETE if you have gathered enough information."
+    },
+    {
+      "id": "excessive-search",
+      "description": "Block after too many Grep calls indicating aimless searching.",
+      "pattern": "COUNT Grep GT 20",
+      "enforcement": "deny",
+      "payload": "Excessive search detected. You have called Grep more than 20 times. Transition to reviewing with the information you have gathered."
+    }
+  ]
+}
