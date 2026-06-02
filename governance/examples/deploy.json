@@ -1,0 +1,60 @@
+{
+  "id": "deploy-governance",
+  "version": "1.0.0",
+  "description": "Production deployment governance. Tests must pass before deploy; human approval gates the final push.",
+  "initial": "pre-check",
+  "states": {
+    "pre-check": {
+      "allowed_tools": ["Read", "Bash"],
+      "allowed_commands": ["git status", "git diff", "make lint", "go vet"],
+      "max_iterations": 5,
+      "on": {
+        "READY": "testing"
+      }
+    },
+    "testing": {
+      "allowed_tools": ["Bash"],
+      "allowed_commands": ["make test", "go test", "npm test", "pytest"],
+      "on": {
+        "PASS": { "target": "approval-gate", "guard": "all_tests_green" },
+        "FAIL": "pre-check"
+      }
+    },
+    "approval-gate": {
+      "allowed_tools": [],
+      "requires_approval": true,
+      "on": {
+        "APPROVED": "deploying",
+        "REJECTED": "pre-check"
+      }
+    },
+    "deploying": {
+      "allowed_tools": ["Bash"],
+      "allowed_commands": ["make deploy", "kubectl apply", "helm upgrade", "git push"],
+      "max_files_per_state": 0,
+      "on": {
+        "DONE": "completed"
+      }
+    },
+    "completed": {
+      "type": "final"
+    }
+  },
+  "guards": {
+    "all_tests_green": {
+      "field": "test_exit_code",
+      "op": "eq",
+      "value": 0
+    }
+  },
+  "trace_rules": [
+    {
+      "id": "no-deploy-without-test",
+      "description": "Deny deploy tools if no test call has been recorded this session.",
+      "pattern": "COUNT Bash LT 1",
+      "scope": "deploying",
+      "enforcement": "deny",
+      "payload": "No test execution recorded. Run tests before deploying."
+    }
+  ]
+}

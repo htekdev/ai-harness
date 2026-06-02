@@ -38,3 +38,19 @@ Initial scaffold target: a file-backed events package on the `copilot/long-runni
 
 ## Notes
 Pi is the closest public benchmark for the minimal-harness philosophy, but AI Harness should go further on typed artifacts, per-turn evaluation, conditional composition, and explicit context observability.
+
+## Governance engine (Phase 2+)
+
+Statewright evaluation complete (see `governance/STATEWRIGHT_EVAL.md`).
+
+**Decision: Hybrid** — Go-native state machine engine with Statewright-compatible JSON workflow schema.
+
+- `governance/` package scaffolded: workflow types, evaluator, trace log, enforcement engine.
+- Schema is 100% source-compatible with Statewright JSON format.
+- AI Harness extensions: `trace_rules` (temporal patterns), `blocked_tools`, `enter_hook`/`exit_hook`, `fact_refs`.
+
+Next steps for Phase 2:
+- Wire `governance.EnforcementEngine` into the `tool.pre` hook
+- Load `.harness/workflows/*.json` artifacts in `config/loader.go`
+- Fork/join and sub-machine invoke evaluator logic
+- Connect `observe/event_store.go` events to `governance.TraceLog`
