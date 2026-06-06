@@ -14,12 +14,12 @@ import (
 // Evaluator is not safe for concurrent use. Each agent session should own
 // its own Evaluator instance.
 type Evaluator struct {
-	workflow     *Workflow
-	current      string
-	history      string // last non-interrupt state (for HistoryState resume)
-	iterations   map[string]int
-	filesEdited  map[string]int // per-state file-edit counts
-	contextData  map[string]any
+	workflow    *Workflow
+	current     string
+	history     string // last non-interrupt state (for HistoryState resume)
+	iterations  map[string]int
+	filesEdited map[string]int // per-state file-edit counts
+	contextData map[string]any
 }
 
 // NewEvaluator creates an Evaluator for the given workflow starting at its
