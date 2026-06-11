@@ -31,6 +31,9 @@ type Agent struct {
 	maxToolIterations int
 	composer          *artifact.Composer
 	turnNumber        int
+	sourceRegistry    *agentctx.Registry
+	sourceInjector    *agentctx.Injector
+	sourceRoot        string
 }
 
 // Options configures the agent.
@@ -45,6 +48,13 @@ type Options struct {
 	MaxToolIterations int
 	// Composer, if provided, will have EvaluateConditions called at the start of each turn.
 	Composer *artifact.Composer
+	// SourceRegistry, if provided, will have Active() called at the start of each turn.
+	// Active sources are injected into the system prompt before the LLM call.
+	SourceRegistry *agentctx.Registry
+	// SourceInjector, if provided, performs the actual injection. Requires SourceRegistry.
+	SourceInjector *agentctx.Injector
+	// SourceRoot is the root directory used for resolving relative file paths in sources.
+	SourceRoot string
 }
 
 // New creates a new Agent with the given options.
@@ -71,6 +81,9 @@ func New(opts Options) *Agent {
 		logger:            opts.Logger,
 		maxToolIterations: maxIter,
 		composer:          opts.Composer,
+		sourceRegistry:    opts.SourceRegistry,
+		sourceInjector:    opts.SourceInjector,
+		sourceRoot:        opts.SourceRoot,
 	}
 }
 
@@ -157,6 +170,29 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 	if a.composer != nil {
 		if err := a.composer.EvaluateConditions(turnCtx); err != nil {
 			a.logger.Printf("WARN condition re-evaluation failed: %v", err)
+		}
+	}
+
+	// Inject declarative context sources into the system prompt.
+	// Save the original prompt so it can be restored after the turn (for
+	// "turn"-scoped sources that should not persist across turns).
+	var originalPrompt string
+	if a.sourceRegistry != nil && a.sourceInjector != nil && a.context != nil {
+		originalPrompt = a.context.SystemPrompt()
+		values, _ := scripting.TurnStateValues(turnCtx)
+		if values == nil {
+			values = make(map[string]interface{})
+		}
+		activeSources, err := a.sourceRegistry.Active(values)
+		if err != nil {
+			a.logger.Printf("WARN context source evaluation failed: %v", err)
+		} else if len(activeSources) > 0 {
+			injected, err := a.sourceInjector.Inject(activeSources, originalPrompt, a.sourceRoot)
+			if err != nil {
+				a.logger.Printf("WARN context source injection failed: %v", err)
+			} else {
+				a.context.SetSystemPrompt(injected)
+			}
 		}
 	}
 
@@ -333,6 +369,12 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 		if err := applyHookPayload(hookResult.Payload, result); err != nil {
 			return nil, fmt.Errorf("turn.end modify payload: %w", err)
 		}
+	}
+
+	// Restore original system prompt (handles "turn"-scoped sources that
+	// should not persist across turns; also ensures per-turn re-injection).
+	if originalPrompt != "" && a.context != nil {
+		a.context.SetSystemPrompt(originalPrompt)
 	}
 
 	return result, nil
