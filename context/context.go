@@ -118,6 +118,11 @@ func (m *Manager) truncateIfNeeded() {
 	}
 }
 
+// SystemPrompt returns the current system prompt.
+func (m *Manager) SystemPrompt() string {
+	return m.systemPrompt
+}
+
 // Fork creates a copy of the context manager for branching conversations.
 func (m *Manager) Fork() *Manager {
 	msgs := make([]completion.Message, len(m.messages))
