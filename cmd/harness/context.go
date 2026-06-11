@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/htekdev/ai-harness/artifact"
+	"github.com/htekdev/ai-harness/config"
 	"github.com/htekdev/ai-harness/observe"
 )
 
@@ -68,5 +69,38 @@ func cmdContext(args []string) error {
 	}
 
 	fmt.Print(snap.Format(mode))
+
+	// Show declarative context sources from harness.md (if any)
+	showContextSources(*dir)
+
 	return nil
+}
+
+// showContextSources prints declared context sources from harness.md (if any).
+// Non-fatal: silently skips if harness.md is missing or has no sources.
+func showContextSources(dir string) {
+	cfgPath := filepath.Join(dir, "harness.md")
+	cfg, err := config.Load(cfgPath)
+	if err != nil || len(cfg.Context.Sources) == 0 {
+		return
+	}
+
+	sources := cfg.Context.Sources
+	fmt.Printf("\nContext Sources (%d)\n", len(sources))
+	fmt.Println("─────────────────────────────────────────────────────────────")
+	for _, s := range sources {
+		loc := s.Path
+		if s.Type == "url" {
+			loc = s.URL
+		}
+		fmt.Printf("  • %s [%s] %s\n", s.Name, s.Type, loc)
+		if s.When != "" {
+			fmt.Printf("      when: %s\n", s.When)
+		} else {
+			fmt.Printf("      always active\n")
+		}
+		if s.Trigger != "" {
+			fmt.Printf("      trigger: %s\n", s.Trigger)
+		}
+	}
 }
