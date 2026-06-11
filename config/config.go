@@ -48,11 +48,38 @@ type ModelConfig struct {
 	APIKeyEnv   string  `yaml:"api_key_env" json:"api_key_env"`
 }
 
-// ContextConfig defines context management parameters.
+// ContextConfig defines context management parameters, including any
+// declarative context sources that can be conditionally injected each turn.
 type ContextConfig struct {
-	MaxHistory   int    `yaml:"max_history" json:"max_history"`
-	MaxTokens    int    `yaml:"max_tokens" json:"max_tokens"`
-	SystemPrompt string `yaml:"system_prompt" json:"system_prompt"`
+	MaxHistory   int                   `yaml:"max_history" json:"max_history"`
+	MaxTokens    int                   `yaml:"max_tokens" json:"max_tokens"`
+	SystemPrompt string                `yaml:"system_prompt" json:"system_prompt"`
+	Sources      []ContextSourceConfig `yaml:"sources,omitempty" json:"sources,omitempty"`
+}
+
+// ContextSourceConfig is one declarative context source entry in harness.md.
+// Sources can be conditionally loaded via Starlark `when` expressions and
+// injected into the system prompt at the start of each turn.
+type ContextSourceConfig struct {
+	// Name is the unique identifier for this source.
+	Name string `yaml:"name" json:"name"`
+	// Type is the source type: "file" or "url".
+	Type string `yaml:"type" json:"type"`
+	// Path is the file path relative to the harness root (for type="file").
+	Path string `yaml:"path,omitempty" json:"path,omitempty"`
+	// URL is the endpoint to fetch (for type="url").
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	// When is a Starlark expression evaluated each turn; empty = always active.
+	When string `yaml:"when,omitempty" json:"when,omitempty"`
+	// Trigger is an optional hook event name that activates the source.
+	Trigger string `yaml:"trigger,omitempty" json:"trigger,omitempty"`
+	// Priority controls injection order; lower values are injected first.
+	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
+	// TTL is the number of turns to stay active after the condition first becomes true.
+	// 0 means no TTL.
+	TTL int `yaml:"ttl,omitempty" json:"ttl,omitempty"`
+	// Scope is "session" or "turn"; "turn" sources auto-unload after each turn.
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"`
 }
 
 // ToolConfig defines a tool in configuration.
