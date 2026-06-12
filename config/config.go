@@ -50,9 +50,22 @@ type ModelConfig struct {
 
 // ContextConfig defines context management parameters.
 type ContextConfig struct {
-	MaxHistory   int    `yaml:"max_history" json:"max_history"`
-	MaxTokens    int    `yaml:"max_tokens" json:"max_tokens"`
-	SystemPrompt string `yaml:"system_prompt" json:"system_prompt"`
+	MaxHistory   int                   `yaml:"max_history" json:"max_history"`
+	MaxTokens    int                   `yaml:"max_tokens" json:"max_tokens"`
+	SystemPrompt string                `yaml:"system_prompt" json:"system_prompt"`
+	Sources      []ContextSourceConfig `yaml:"sources,omitempty" json:"sources,omitempty"`
+}
+
+// ContextSourceConfig defines a declarative context source in harness.yaml / harness.md.
+type ContextSourceConfig struct {
+	Name     string `yaml:"name" json:"name"`
+	Type     string `yaml:"type" json:"type"`
+	Path     string `yaml:"path" json:"path"`
+	When     string `yaml:"when,omitempty" json:"when,omitempty"`
+	Trigger  string `yaml:"trigger,omitempty" json:"trigger,omitempty"`
+	Priority int    `yaml:"priority,omitempty" json:"priority,omitempty"`
+	Scope    string `yaml:"scope,omitempty" json:"scope,omitempty"`
+	TTL      int    `yaml:"ttl,omitempty" json:"ttl,omitempty"`
 }
 
 // ToolConfig defines a tool in configuration.

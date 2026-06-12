@@ -51,8 +51,9 @@ type delegationPolicyOverride struct {
 }
 
 type contextPolicyOverride struct {
-	MaxHistory *int `yaml:"max_history"`
-	MaxTokens  *int `yaml:"max_tokens"`
+	MaxHistory *int                `yaml:"max_history"`
+	MaxTokens  *int                `yaml:"max_tokens"`
+	Sources    *[]ContextSourceDef `yaml:"sources,omitempty"`
 }
 
 type metaPolicyOverride struct {
@@ -220,6 +221,9 @@ func mergePolicy(base Policy, override policyOverride) Policy {
 		}
 		if override.Context.MaxTokens != nil {
 			merged.Context.MaxTokens = *override.Context.MaxTokens
+		}
+		if override.Context.Sources != nil {
+			merged.Context.Sources = append([]ContextSourceDef(nil), (*override.Context.Sources)...)
 		}
 	}
 
