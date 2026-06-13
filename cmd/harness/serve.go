@@ -185,7 +185,7 @@ func runServe(ctx context.Context, h *harness.Harness, srcs []input.Source) erro
 					if err == io.EOF || ctx.Err() != nil {
 						return
 					}
-					fmt.Fprintf(os.Stderr, "[%s] read error: %v\n", s.Name(), err)
+					harness.Logger().Error("source read error", "source", s.Name(), "error", err)
 					return
 				}
 				select {
@@ -254,7 +254,8 @@ func sessionWorker(ctx context.Context, h *harness.Harness, key string, ch <-cha
 // handleResult prints results for stdin and routes via Replier for sources that support it.
 func handleResult(ctx context.Context, j serveJob, result *agent.TurnResult, err error) {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[%s] error: %v\n", j.source.Name(), err)
+		harness.Logger().Error("turn error",
+			"source", j.source.Name(), "session_key", j.ev.SessionKey, "error", err)
 		if r, ok := j.source.(input.Replier); ok {
 			_ = r.Reply(ctx, j.ev, fmt.Sprintf("error: %v", err))
 		}
@@ -281,7 +282,8 @@ func handleResult(ctx context.Context, j serveJob, result *agent.TurnResult, err
 	// Route via Replier for sources that support it (telegram, slack, ...).
 	if r, ok := j.source.(input.Replier); ok {
 		if err := r.Reply(ctx, j.ev, result.Response); err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] reply error: %v\n", j.source.Name(), err)
+			harness.Logger().Error("reply error",
+				"source", j.source.Name(), "session_key", j.ev.SessionKey, "error", err)
 		}
 	}
 }

@@ -30,6 +30,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/htekdev/ai-harness/harness"
 )
 
 // Set at build time via -ldflags.
@@ -45,8 +47,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	cmd := os.Args[1]
-	args := os.Args[2:]
+	// Strip global logging flags from os.Args before subcommand dispatch so
+	// every subcommand (run/serve/deploy/...) gets the same knob without
+	// having to wire it into its own flag set.
+	args, logFormat, logLevel, err := extractLogFlags(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	if err := harness.ConfigureLoggerFromFlags(logFormat, logLevel); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	if len(args) == 0 {
+		printUsage()
+		os.Exit(1)
+	}
+
+	cmd := args[0]
+	args = args[1:]
 
 	switch cmd {
 	case "scaffold":
@@ -146,7 +165,11 @@ Other:
   version    Print version information
 
 Flags:
-  -c, --config <path>   Path to harness config (default: harness.md or harness.yaml)
+  -c, --config <path>          Path to harness config (default: harness.md or harness.yaml)
+  --log-level <level>          debug | info (default) | warn | error
+                               (env: HARNESS_LOG_LEVEL)
+  --log-format <format>        text (default) | json
+                               (env: HARNESS_LOG_FORMAT)
 
 Examples:
   harness scaffold my-agent            # create project
