@@ -107,8 +107,13 @@ func cmdServe(args []string) error {
 	fmt.Println("   (Ctrl-C to stop)")
 	fmt.Println("---")
 
-	return runServe(ctx, h, srcs)
+	return runServe(ctx, h.Run, srcs)
 }
+
+// turnRunner is the harness entry point invoked per inbound turn. Production
+// wires this to harness.Harness.Run; tests inject a stub so the multi-source
+// dispatch logic can be exercised without spinning up an LLM.
+type turnRunner func(ctx context.Context, text string) (*agent.TurnResult, error)
 
 // resolveSources picks the source set with this precedence:
 //  1. --source CLI flags (telegramChats / telegramPoll apply)
@@ -170,15 +175,15 @@ type serveJob struct {
 // that consumes turn requests for that session in order. This prevents two
 // concurrent messages from the same chat from interleaving Run() calls on the
 // same harness instance (which is not yet documented as concurrent-safe).
-func runServe(ctx context.Context, h *harness.Harness, srcs []input.Source) error {
+func runServe(ctx context.Context, run turnRunner, srcs []input.Source) error {
 	events := make(chan serveJob, 16)
 
 	// Pump each source on its own goroutine.
-	var wg sync.WaitGroup
+	var srcWG sync.WaitGroup
 	for _, s := range srcs {
-		wg.Add(1)
+		srcWG.Add(1)
 		go func(s input.Source) {
-			defer wg.Done()
+			defer srcWG.Done()
 			for {
 				ev, err := s.Read(ctx)
 				if err != nil {
@@ -197,9 +202,19 @@ func runServe(ctx context.Context, h *harness.Harness, srcs []input.Source) erro
 		}(s)
 	}
 
-	// Per-session worker pool: SessionKey -> chan serveJob.
+	// Close events once every source has finished pumping. This lets the
+	// dispatch loop drain in-flight events before exiting on shutdown.
+	go func() {
+		srcWG.Wait()
+		close(events)
+	}()
+
+	// Per-session worker pool: SessionKey -> chan serveJob. Each worker
+	// goroutine is tracked in workerWG so shutdown can wait for in-flight
+	// turns to finish before runServe returns.
 	workers := map[string]chan serveJob{}
 	var mu sync.Mutex
+	var workerWG sync.WaitGroup
 
 	dispatch := func(j serveJob) {
 		key := j.ev.SessionKey
@@ -208,7 +223,11 @@ func runServe(ctx context.Context, h *harness.Harness, srcs []input.Source) erro
 		if !ok {
 			ch = make(chan serveJob, 8)
 			workers[key] = ch
-			go sessionWorker(ctx, h, key, ch)
+			workerWG.Add(1)
+			go func(c chan serveJob) {
+				defer workerWG.Done()
+				sessionWorker(ctx, run, key, c)
+			}(ch)
 		}
 		mu.Unlock()
 		select {
@@ -217,26 +236,38 @@ func runServe(ctx context.Context, h *harness.Harness, srcs []input.Source) erro
 		}
 	}
 
-	// Drain events until ctx is done or all sources have closed.
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-
+	// Dispatch loop: range over events so we naturally drain whatever has
+	// been buffered when the source pump goroutine closes the channel.
+	// ctx cancel breaks out early; otherwise we exit when events is drained.
+loop:
 	for {
 		select {
 		case <-ctx.Done():
-			// Closing source channels happens via the deferred Close in the caller.
-			return nil
-		case <-done:
-			// All sources exhausted (e.g. stdin EOF in piped mode).
-			return nil
-		case j := <-events:
+			break loop
+		case j, ok := <-events:
+			if !ok {
+				break loop
+			}
 			dispatch(j)
 		}
 	}
+
+	// Shutdown: close every worker channel so in-flight workers exit cleanly,
+	// then wait for them. This guarantees that any Reply triggered by an
+	// already-dispatched event has completed before runServe returns —
+	// which is what tests (and production graceful shutdown) need to
+	// observe deterministic delivery.
+	mu.Lock()
+	for _, ch := range workers {
+		close(ch)
+	}
+	mu.Unlock()
+	workerWG.Wait()
+	return nil
 }
 
 // sessionWorker drains turn jobs for a single SessionKey serially.
-func sessionWorker(ctx context.Context, h *harness.Harness, key string, ch <-chan serveJob) {
+func sessionWorker(ctx context.Context, run turnRunner, key string, ch <-chan serveJob) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -245,7 +276,7 @@ func sessionWorker(ctx context.Context, h *harness.Harness, key string, ch <-cha
 			if !ok {
 				return
 			}
-			result, err := h.Run(ctx, j.ev.Text)
+			result, err := run(ctx, j.ev.Text)
 			handleResult(ctx, j, result, err)
 		}
 	}
