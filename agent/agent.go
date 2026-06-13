@@ -10,6 +10,11 @@ import (
 	"reflect"
 	"sync"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/htekdev/ai-harness/artifact"
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
@@ -17,6 +22,9 @@ import (
 	"github.com/htekdev/ai-harness/scripting"
 	"github.com/htekdev/ai-harness/tools"
 )
+
+// tracerName is the OTel instrumentation library name shared across packages.
+const tracerName = "github.com/htekdev/ai-harness"
 
 // DefaultMaxToolIterations is the default maximum number of tool-call loops before forcing a stop.
 const DefaultMaxToolIterations = 20
@@ -146,18 +154,59 @@ func normalizeHookPayload(m map[string]interface{}, target any) any {
 
 // Run executes a single turn: takes user input, runs the agent loop until
 // the model produces a final response (no more tool calls).
-func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error) {
+//
+// Phase 5.2 (PR-B): each turn opens an `agent.turn` OTel span with attrs
+//
+//	turn.index             = monotonic per-agent turn counter (1-based)
+//	turn.user_message_len  = len(userMessage) (in bytes; cheap)
+//	turn.tool_calls        = number of tool calls executed across iterations
+//	turn.iterations        = number of model completions consumed
+//	turn.prompt_tokens
+//	turn.completion_tokens
+//	turn.total_tokens
+//
+// On error the span is marked with codes.Error and the underlying error is
+// recorded via span.RecordError. Child spans (`tool.call`, `delegation.execute`)
+// nest under this turn span automatically because turnCtx carries the span
+// context through hooks/tools/delegation.
+func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult, err error) {
 	turnCtx := hooks.WithDispatcher(scripting.WithTurnState(ctx), a.hooks)
 
 	// Increment turn counter and populate turn state
 	a.turnNumber++
 	scripting.SetTurnState(turnCtx, "turn", a.turnNumber)
 
+	// Open the agent.turn span. Attributes that aren't known until completion
+	// (token counts, iterations) are added in the deferred finalizer.
+	turnCtx, span := otel.Tracer(tracerName).Start(turnCtx, "agent.turn",
+		trace.WithAttributes(
+			attribute.Int("turn.index", a.turnNumber),
+			attribute.Int("turn.user_message_len", len(userMessage)),
+		),
+	)
+	var iterationsRun int
+	defer func() {
+		if result != nil {
+			span.SetAttributes(
+				attribute.Int("turn.iterations", iterationsRun),
+				attribute.Int("turn.tool_calls", len(result.ToolCalls)),
+				attribute.Int("turn.prompt_tokens", result.Usage.PromptTokens),
+				attribute.Int("turn.completion_tokens", result.Usage.CompletionTokens),
+				attribute.Int("turn.total_tokens", result.Usage.TotalTokens),
+			)
+		}
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
 	// Re-evaluate artifact conditions against fresh turn state
 	if a.composer != nil {
-		if err := a.composer.EvaluateConditions(turnCtx); err != nil {
+		if cerr := a.composer.EvaluateConditions(turnCtx); cerr != nil {
 			a.logger.Warn("artifact condition re-evaluation failed",
-				"turn", a.turnNumber, "error", err)
+				"turn", a.turnNumber, "error", cerr)
 		}
 	}
 
@@ -178,10 +227,11 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 		Content: userMessage,
 	})
 
-	result := &TurnResult{}
+	result = &TurnResult{}
 	completed := false
 
 	for iteration := 0; iteration < a.maxToolIterations; iteration++ {
+		iterationsRun = iteration + 1
 		// Build completion request
 		req := completion.Request{
 			Messages: a.context.Messages(),

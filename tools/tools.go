@@ -8,7 +8,16 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// tracerName is the OTel instrumentation library name shared across the
+// ai-harness packages so spans coalesce under a single instrumentation scope.
+const tracerName = "github.com/htekdev/ai-harness"
 
 // ParameterType represents the JSON Schema type of a tool parameter.
 type ParameterType string
@@ -160,7 +169,31 @@ func (r *Registry) Count() int {
 
 // Execute invokes a tool by name with the given arguments.
 // It respects context cancellation and deadlines.
-func (r *Registry) Execute(ctx context.Context, call Call) Result {
+//
+// Phase 5.2 (PR-B): each call emits a `tool.call` OTel span with attributes
+//
+//	tool.name      = call.Name
+//	tool.call_id   = call.ID
+//	tool.is_error  = result.IsError (set on End)
+//
+// When the tool is not registered or its handler returns an error, the span's
+// status is set to Error with the failure message; the underlying error is
+// recorded via span.RecordError when available.
+func (r *Registry) Execute(ctx context.Context, call Call) (result Result) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "tool.call",
+		trace.WithAttributes(
+			attribute.String("tool.name", call.Name),
+			attribute.String("tool.call_id", call.ID),
+		),
+	)
+	defer func() {
+		span.SetAttributes(attribute.Bool("tool.is_error", result.IsError))
+		if result.IsError {
+			span.SetStatus(codes.Error, result.Content)
+		}
+		span.End()
+	}()
+
 	r.mu.RLock()
 	reg, exists := r.tools[call.Name]
 	r.mu.RUnlock()
@@ -176,6 +209,7 @@ func (r *Registry) Execute(ctx context.Context, call Call) Result {
 
 	output, err := reg.Handler(ctx, call.Arguments)
 	if err != nil {
+		span.RecordError(err)
 		return Result{
 			CallID:  call.ID,
 			Name:    call.Name,
