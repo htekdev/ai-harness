@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/htekdev/ai-harness/harness/errs"
 )
 
 // EvalCase represents a single evaluation scenario loaded from a YAML file.
@@ -116,7 +118,7 @@ func (e *EvalCase) UnmarshalYAML(node *yaml.Node) error {
 	if raw.Timeout != "" {
 		d, err := time.ParseDuration(raw.Timeout)
 		if err != nil {
-			return fmt.Errorf("invalid timeout %q: %w", raw.Timeout, err)
+			return errs.Wrap(errs.KindConfig, "evals.parseTimeout", err, "invalid timeout %q", raw.Timeout)
 		}
 		e.Timeout = d
 	}
@@ -172,12 +174,12 @@ func (g *GradeCriterion) UnmarshalYAML(node *yaml.Node) error {
 func LoadCase(path string) (*EvalCase, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read case %s: %w", path, err)
+		return nil, errs.Wrap(errs.KindConfig, "evals.LoadCase", err, "read case %s", path)
 	}
 
 	var c EvalCase
 	if err := yaml.Unmarshal(data, &c); err != nil {
-		return nil, fmt.Errorf("parse case %s: %w", path, err)
+		return nil, errs.Wrap(errs.KindConfig, "evals.LoadCase", err, "parse case %s", path)
 	}
 
 	// Apply defaults
@@ -198,7 +200,7 @@ func LoadCase(path string) (*EvalCase, error) {
 func LoadCases(dir string) ([]*EvalCase, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read cases dir %s: %w", dir, err)
+		return nil, errs.Wrap(errs.KindConfig, "evals.LoadCases", err, "read cases dir %s", dir)
 	}
 
 	var cases []*EvalCase
