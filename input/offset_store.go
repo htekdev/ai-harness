@@ -3,11 +3,12 @@ package input
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
+
+	"github.com/htekdev/ai-harness/harness/errs"
 )
 
 // OffsetStore persists the last-acknowledged Telegram update_id across process
@@ -81,14 +82,14 @@ func (f *FileOffsetStore) Load() (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.path == "" {
-		return 0, errors.New("telegram offset store: empty path")
+		return 0, errs.Newf(errs.KindPersistence, "input.offset.load", "telegram offset store: empty path")
 	}
 	data, err := os.ReadFile(f.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return 0, nil
 		}
-		return 0, fmt.Errorf("telegram offset store: read %s: %w", f.path, err)
+		return 0, errs.Wrap(errs.KindPersistence, "input.offset.load", err, "telegram offset store: read %s", f.path)
 	}
 	if len(data) == 0 {
 		return 0, nil
@@ -102,7 +103,7 @@ func (f *FileOffsetStore) Load() (int64, error) {
 	if n, perr := strconv.ParseInt(string(trimSpace(data)), 10, 64); perr == nil {
 		return n, nil
 	}
-	return 0, fmt.Errorf("telegram offset store: %s does not contain a valid offset", f.path)
+	return 0, errs.Newf(errs.KindPersistence, "input.offset.load", "telegram offset store: %s does not contain a valid offset", f.path)
 }
 
 // Save writes the offset atomically: write to a sibling .tmp file, fsync, then rename.
@@ -110,39 +111,39 @@ func (f *FileOffsetStore) Save(offset int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.path == "" {
-		return errors.New("telegram offset store: empty path")
+		return errs.Newf(errs.KindPersistence, "input.offset.save", "telegram offset store: empty path")
 	}
 	dir := filepath.Dir(f.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("telegram offset store: mkdir %s: %w", dir, err)
+		return errs.Wrap(errs.KindPersistence, "input.offset.save", err, "telegram offset store: mkdir %s", dir)
 	}
 	payload, err := json.Marshal(fileOffsetPayload{Offset: offset})
 	if err != nil {
-		return fmt.Errorf("telegram offset store: marshal: %w", err)
+		return errs.Wrap(errs.KindPersistence, "input.offset.save", err, "telegram offset store: marshal")
 	}
 	tmp, err := os.CreateTemp(dir, ".offset-*.tmp")
 	if err != nil {
-		return fmt.Errorf("telegram offset store: create temp: %w", err)
+		return errs.Wrap(errs.KindPersistence, "input.offset.save", err, "telegram offset store: create temp")
 	}
 	tmpPath := tmp.Name()
 	cleanup := func() { _ = os.Remove(tmpPath) }
 	if _, err := tmp.Write(payload); err != nil {
 		_ = tmp.Close()
 		cleanup()
-		return fmt.Errorf("telegram offset store: write temp: %w", err)
+		return errs.Wrap(errs.KindPersistence, "input.offset.save", err, "telegram offset store: write temp")
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
 		cleanup()
-		return fmt.Errorf("telegram offset store: fsync temp: %w", err)
+		return errs.Wrap(errs.KindPersistence, "input.offset.save", err, "telegram offset store: fsync temp")
 	}
 	if err := tmp.Close(); err != nil {
 		cleanup()
-		return fmt.Errorf("telegram offset store: close temp: %w", err)
+		return errs.Wrap(errs.KindPersistence, "input.offset.save", err, "telegram offset store: close temp")
 	}
 	if err := os.Rename(tmpPath, f.path); err != nil {
 		cleanup()
-		return fmt.Errorf("telegram offset store: rename %s -> %s: %w", tmpPath, f.path, err)
+		return errs.Wrap(errs.KindPersistence, "input.offset.save", err, "telegram offset store: rename %s -> %s", tmpPath, f.path)
 	}
 	return nil
 }

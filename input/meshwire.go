@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/htekdev/ai-harness/harness/errs"
 )
 
 // MeshWireSource produces Events from a MeshWire mesh
@@ -81,16 +83,16 @@ type MeshWireConfig struct {
 // MeshID, or AgentID is empty, or SenderAllowlist is empty.
 func NewMeshWireSource(cfg MeshWireConfig) (*MeshWireSource, error) {
 	if strings.TrimSpace(cfg.Token) == "" {
-		return nil, fmt.Errorf("meshwire: token is required")
+		return nil, errs.Newf(errs.KindSource, "input.meshwire.new", "meshwire: token is required")
 	}
 	if strings.TrimSpace(cfg.MeshID) == "" {
-		return nil, fmt.Errorf("meshwire: mesh_id is required")
+		return nil, errs.Newf(errs.KindSource, "input.meshwire.new", "meshwire: mesh_id is required")
 	}
 	if strings.TrimSpace(cfg.AgentID) == "" {
-		return nil, fmt.Errorf("meshwire: agent_id is required")
+		return nil, errs.Newf(errs.KindSource, "input.meshwire.new", "meshwire: agent_id is required")
 	}
 	if len(cfg.SenderAllowlist) == 0 {
-		return nil, fmt.Errorf("meshwire: sender_allowlist must contain at least one agent_id (no wildcard in v1)")
+		return nil, errs.Newf(errs.KindSource, "input.meshwire.new", "meshwire: sender_allowlist must contain at least one agent_id (no wildcard in v1)")
 	}
 	allow := make(map[string]struct{}, len(cfg.SenderAllowlist))
 	for _, id := range cfg.SenderAllowlist {
@@ -124,7 +126,7 @@ func NewMeshWireSource(cfg MeshWireConfig) (*MeshWireSource, error) {
 	if src.offsetStore != nil {
 		stored, err := src.offsetStore.Load()
 		if err != nil {
-			return nil, fmt.Errorf("meshwire: load offset: %w", err)
+			return nil, errs.Wrap(errs.KindPersistence, "input.meshwire.new", err, "meshwire: load offset")
 		}
 		if stored < 0 {
 			stored = 0
@@ -160,7 +162,7 @@ func (m *MeshWireSource) Read(ctx context.Context) (Event, error) {
 			m.lastSeenID = msg.MessageID
 			if m.offsetStore != nil {
 				if err := m.offsetStore.Save(m.lastSeenID); err != nil {
-					return Event{}, fmt.Errorf("meshwire: persist offset: %w", err)
+						return Event{}, errs.Wrap(errs.KindPersistence, "input.meshwire.read", err, "meshwire: persist offset")
 				}
 			}
 			if msg.Content == "" {
@@ -196,7 +198,7 @@ func (m *MeshWireSource) Read(ctx context.Context) (Event, error) {
 func (m *MeshWireSource) Reply(ctx context.Context, ev Event, text string) error {
 	msgIDStr := ev.Metadata["message_id"]
 	if msgIDStr == "" {
-		return fmt.Errorf("meshwire: cannot reply, missing message_id in event metadata")
+		return errs.Newf(errs.KindSource, "input.meshwire.reply", "meshwire: cannot reply, missing message_id in event metadata")
 	}
 	endpoint := fmt.Sprintf("%s/mesh/%s/messages/%s/reply",
 		strings.TrimRight(m.apiBase, "/"), m.meshID, msgIDStr)
@@ -221,7 +223,7 @@ func (m *MeshWireSource) Reply(ctx context.Context, ev Event, text string) error
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("meshwire reply: %s: %s", resp.Status, string(raw))
+		return errs.Newf(errs.KindSource, "input.meshwire.reply", "meshwire reply: %s: %s", resp.Status, string(raw))
 	}
 	return nil
 }
@@ -254,14 +256,14 @@ func (m *MeshWireSource) poll(ctx context.Context) error {
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("meshwire getMessages: %s: %s", resp.Status, string(raw))
+		return errs.Newf(errs.KindSource, "input.meshwire.poll", "meshwire getMessages: %s: %s", resp.Status, string(raw))
 	}
 	var payload mwMessagesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return fmt.Errorf("meshwire getMessages: decode: %w", err)
+		return errs.Wrap(errs.KindSource, "input.meshwire.poll", err, "meshwire getMessages: decode")
 	}
 	if !payload.OK {
-		return fmt.Errorf("meshwire getMessages: not ok")
+		return errs.Newf(errs.KindSource, "input.meshwire.poll", "meshwire getMessages: not ok")
 	}
 	m.buffered = payload.Messages
 	m.cursor = 0

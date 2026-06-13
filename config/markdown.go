@@ -4,11 +4,11 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/htekdev/ai-harness/harness/errs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,7 +27,7 @@ func ParseMarkdown(data []byte) (*MarkdownDoc, error) {
 
 	// Must start with ---
 	if !strings.HasPrefix(strings.TrimSpace(content), "---") {
-		return nil, fmt.Errorf("markdown file must start with --- frontmatter delimiter")
+		return nil, errs.Newf(errs.KindConfig, "config.markdown", "markdown file must start with --- frontmatter delimiter")
 	}
 
 	// Find the opening ---
@@ -38,7 +38,7 @@ func ParseMarkdown(data []byte) (*MarkdownDoc, error) {
 	if idx := strings.IndexByte(afterFirst, '\n'); idx >= 0 {
 		afterFirst = afterFirst[idx+1:]
 	} else {
-		return nil, fmt.Errorf("no content after opening --- delimiter")
+		return nil, errs.Newf(errs.KindConfig, "config.markdown", "no content after opening --- delimiter")
 	}
 
 	// Find the closing ---
@@ -54,7 +54,7 @@ func ParseMarkdown(data []byte) (*MarkdownDoc, error) {
 				Body:        "",
 			}, nil
 		}
-		return nil, fmt.Errorf("no closing --- delimiter found for frontmatter")
+		return nil, errs.Newf(errs.KindConfig, "config.markdown", "no closing --- delimiter found for frontmatter")
 	}
 
 	frontmatter := afterFirst[:closingIdx]
@@ -79,17 +79,17 @@ func ParseMarkdown(data []byte) (*MarkdownDoc, error) {
 func LoadMarkdown(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read markdown file: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loadmarkdown", err, "read markdown file")
 	}
 
 	doc, err := ParseMarkdown(data)
 	if err != nil {
-		return nil, fmt.Errorf("parse markdown %s: %w", path, err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loadmarkdown", err, "parse markdown %s", path)
 	}
 
 	cfg, err := Parse(doc.Frontmatter)
 	if err != nil {
-		return nil, fmt.Errorf("parse frontmatter in %s: %w", path, err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loadmarkdown", err, "parse frontmatter in %s", path)
 	}
 
 	// Markdown body becomes the system prompt
@@ -110,7 +110,7 @@ func LoadAuto(path string) (*Config, error) {
 	case ".yaml", ".yml":
 		return Load(path)
 	default:
-		return nil, fmt.Errorf("unsupported config file extension %q (use .md, .yaml, or .yml)", ext)
+		return nil, errs.Newf(errs.KindConfig, "config.loadauto", "unsupported config file extension %q (use .md, .yaml, or .yml)", ext)
 	}
 }
 
@@ -132,7 +132,7 @@ func ParseToolMarkdown(data []byte, name string) (*ToolConfig, error) {
 
 	var fm toolFrontmatter
 	if err := yamlUnmarshal(doc.Frontmatter, &fm); err != nil {
-		return nil, fmt.Errorf("parse tool frontmatter: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.parsetool", err, "parse tool frontmatter")
 	}
 
 	description := doc.Body
@@ -166,11 +166,11 @@ func ParseHookMarkdown(data []byte, name string) (*HookConfig, error) {
 
 	var fm hookFrontmatter
 	if err := yamlUnmarshal(doc.Frontmatter, &fm); err != nil {
-		return nil, fmt.Errorf("parse hook frontmatter: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.parsehook", err, "parse hook frontmatter")
 	}
 
 	if fm.Event == "" {
-		return nil, fmt.Errorf("hook %q: event field is required in frontmatter", name)
+		return nil, errs.Newf(errs.KindConfig, "config.parsehook", "hook %q: event field is required in frontmatter", name)
 	}
 
 	return &HookConfig{
@@ -212,7 +212,7 @@ func (at *AgentTool) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	// Try inline tool config
 	var tc ToolConfig
 	if err := unmarshal(&tc); err != nil {
-		return fmt.Errorf("agent tool must be a string reference or inline tool config: %w", err)
+		return errs.Wrap(errs.KindConfig, "config.agenttool", err, "agent tool must be a string reference or inline tool config")
 	}
 	at.Inline = &tc
 	return nil
@@ -238,7 +238,7 @@ func (ah *AgentHook) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	// Try inline hook config
 	var hc HookConfig
 	if err := unmarshal(&hc); err != nil {
-		return fmt.Errorf("agent hook must be a string reference or inline hook config: %w", err)
+		return errs.Wrap(errs.KindConfig, "config.agenthook", err, "agent hook must be a string reference or inline hook config")
 	}
 	ah.Inline = &hc
 	return nil
@@ -261,7 +261,7 @@ func ParseAgentMarkdown(data []byte, name string) (*AgentConfig, error) {
 
 	var fm agentFrontmatter
 	if err := yamlUnmarshal(doc.Frontmatter, &fm); err != nil {
-		return nil, fmt.Errorf("parse agent frontmatter: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.parseagent", err, "parse agent frontmatter")
 	}
 
 	return &AgentConfig{

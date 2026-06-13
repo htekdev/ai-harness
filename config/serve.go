@@ -9,6 +9,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/htekdev/ai-harness/harness/errs"
 )
 
 // ServeConfig is the declarative configuration for `harness serve`.
@@ -92,7 +94,7 @@ func (s *ServeConfig) Validate() error {
 		return nil
 	}
 	if len(s.Sources) == 0 {
-		return fmt.Errorf("serve.sources must contain at least one entry")
+		return errs.Newf(errs.KindConfig, "config.serve.validate", "serve.sources must contain at least one entry")
 	}
 	var issues []string
 	seen := make(map[string]int, len(s.Sources))
@@ -144,7 +146,7 @@ func (s *ServeConfig) Validate() error {
 		}
 	}
 	if len(issues) > 0 {
-		return fmt.Errorf("serve config invalid: %s", strings.Join(issues, "; "))
+		return errs.Newf(errs.KindConfig, "config.serve.validate", "serve config invalid: %s", strings.Join(issues, "; "))
 	}
 	return nil
 }

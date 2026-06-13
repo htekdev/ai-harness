@@ -2,9 +2,10 @@
 package persistence
 
 import (
-	"fmt"
 	"sync"
 	"time"
+
+	harnesserrs "github.com/htekdev/ai-harness/harness/errs"
 )
 
 // Kind is a persistence event type.
@@ -99,10 +100,10 @@ func (l *EventLog) Append(evt Event) (Event, error) {
 	defer l.mu.Unlock()
 
 	if evt.ID == "" {
-		return Event{}, fmt.Errorf("event id cannot be empty")
+		return Event{}, harnesserrs.Newf(harnesserrs.KindPersistence, "persistence.append", "event id cannot be empty")
 	}
 	if _, exists := l.events[evt.ID]; exists {
-		return Event{}, fmt.Errorf("event %q already exists", evt.ID)
+		return Event{}, harnesserrs.Newf(harnesserrs.KindPersistence, "persistence.append", "event %q already exists", evt.ID)
 	}
 	if evt.Branch == "" {
 		evt.Branch = "main"
@@ -112,7 +113,7 @@ func (l *EventLog) Append(evt Event) (Event, error) {
 	}
 	if evt.ParentID != "" {
 		if _, ok := l.events[evt.ParentID]; !ok {
-			return Event{}, fmt.Errorf("parent event %q not found", evt.ParentID)
+			return Event{}, harnesserrs.Newf(harnesserrs.KindPersistence, "persistence.append", "parent event %q not found", evt.ParentID)
 		}
 	} else if head, ok := l.heads[evt.Branch]; ok {
 		evt.ParentID = head
@@ -150,7 +151,7 @@ func (l *EventLog) Replay(branch string) ([]Event, error) {
 	}
 	head, ok := l.heads[branch]
 	if !ok {
-		return nil, fmt.Errorf("branch %q has no events", branch)
+		return nil, harnesserrs.Newf(harnesserrs.KindPersistence, "persistence.replay", "branch %q has no events", branch)
 	}
 	return l.replayFromHeadLocked(head), nil
 }
