@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/htekdev/ai-harness/harness/errs"
 )
 
 // TelegramSource produces Events from Telegram Bot API getUpdates long-polls.
@@ -67,10 +69,10 @@ type TelegramConfig struct {
 // or ChatAllowlist is empty (no wildcard allowed in v1).
 func NewTelegramSource(cfg TelegramConfig) (*TelegramSource, error) {
 	if strings.TrimSpace(cfg.Token) == "" {
-		return nil, fmt.Errorf("telegram: token is required")
+		return nil, errs.Newf(errs.KindSource, "input.telegram.new", "telegram: token is required")
 	}
 	if len(cfg.ChatAllowlist) == 0 {
-		return nil, fmt.Errorf("telegram: chat_allowlist must contain at least one chat_id (no wildcard in v1)")
+		return nil, errs.Newf(errs.KindSource, "input.telegram.new", "telegram: chat_allowlist must contain at least one chat_id (no wildcard in v1)")
 	}
 	allow := make(map[int64]struct{}, len(cfg.ChatAllowlist))
 	for _, id := range cfg.ChatAllowlist {
@@ -102,7 +104,7 @@ func NewTelegramSource(cfg TelegramConfig) (*TelegramSource, error) {
 	if src.offsetStore != nil {
 		stored, err := src.offsetStore.Load()
 		if err != nil {
-			return nil, fmt.Errorf("telegram: load offset: %w", err)
+			return nil, errs.Wrap(errs.KindPersistence, "input.telegram.new", err, "telegram: load offset")
 		}
 		if stored < 0 {
 			stored = 0
@@ -130,7 +132,7 @@ func (t *TelegramSource) Read(ctx context.Context) (Event, error) {
 				t.offset = u.UpdateID + 1
 				if t.offsetStore != nil {
 					if err := t.offsetStore.Save(t.offset); err != nil {
-						return Event{}, fmt.Errorf("telegram: persist offset: %w", err)
+						return Event{}, errs.Wrap(errs.KindPersistence, "input.telegram.read", err, "telegram: persist offset")
 					}
 				}
 			}
@@ -167,7 +169,7 @@ func (t *TelegramSource) Reply(ctx context.Context, ev Event, text string) error
 		chatID = ev.SessionKey
 	}
 	if chatID == "" {
-		return fmt.Errorf("telegram: cannot reply, missing chat_id in event")
+		return errs.Newf(errs.KindSource, "input.telegram.reply", "telegram: cannot reply, missing chat_id in event")
 	}
 	endpoint := fmt.Sprintf("%s/bot%s/sendMessage", t.apiBase, t.token)
 	form := url.Values{}
@@ -185,7 +187,7 @@ func (t *TelegramSource) Reply(ctx context.Context, ev Event, text string) error
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("telegram sendMessage: %s: %s", resp.Status, string(body))
+		return errs.Newf(errs.KindSource, "input.telegram.reply", "telegram sendMessage: %s: %s", resp.Status, string(body))
 	}
 	return nil
 }
@@ -211,14 +213,14 @@ func (t *TelegramSource) poll(ctx context.Context) error {
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("telegram getUpdates: %s: %s", resp.Status, string(body))
+		return errs.Newf(errs.KindSource, "input.telegram.poll", "telegram getUpdates: %s: %s", resp.Status, string(body))
 	}
 	var payload tgUpdatesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return fmt.Errorf("telegram getUpdates: decode: %w", err)
+		return errs.Wrap(errs.KindSource, "input.telegram.poll", err, "telegram getUpdates: decode")
 	}
 	if !payload.OK {
-		return fmt.Errorf("telegram getUpdates: not ok")
+		return errs.Newf(errs.KindSource, "input.telegram.poll", "telegram getUpdates: not ok")
 	}
 	t.updates = payload.Result
 	t.updatesCursor = 0

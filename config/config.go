@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/htekdev/ai-harness/harness/errs"
 	"github.com/htekdev/ai-harness/hooks"
 	"gopkg.in/yaml.v3"
 )
@@ -85,7 +86,7 @@ type HookConfig struct {
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read config file: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.load", err, "read config file")
 	}
 
 	return Parse(data)
@@ -95,7 +96,7 @@ func Load(path string) (*Config, error) {
 func Parse(data []byte) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.parse", err, "parse config")
 	}
 
 	applyDefaults(&cfg)
@@ -109,7 +110,7 @@ func Parse(data []byte) (*Config, error) {
 func ParseJSON(data []byte) (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.parsejson", err, "parse config")
 	}
 
 	applyDefaults(&cfg)
@@ -186,7 +187,7 @@ func (c *Config) Validate() error {
 	}
 
 	if len(issues) > 0 {
-		return fmt.Errorf("invalid config: %s", strings.Join(issues, "; "))
+		return errs.Newf(errs.KindConfig, "config.validate", "invalid config: %s", strings.Join(issues, "; "))
 	}
 	return nil
 }

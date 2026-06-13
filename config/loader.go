@@ -1,10 +1,11 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/htekdev/ai-harness/harness/errs"
 )
 
 // LoadResult holds the fully assembled configuration including file-based additions.
@@ -30,7 +31,7 @@ func LoadDirectory(baseDir string) (*LoadResult, error) {
 	// Load tools from .harness/tools/
 	toolsDir := filepath.Join(harnessDir, "tools")
 	if tools, err := loadToolsFromDir(toolsDir); err != nil {
-		return nil, fmt.Errorf("load .harness/tools: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load .harness/tools")
 	} else {
 		result.Config.Tools = tools
 	}
@@ -38,7 +39,7 @@ func LoadDirectory(baseDir string) (*LoadResult, error) {
 	// Load hooks from .harness/hooks/
 	hooksDir := filepath.Join(harnessDir, "hooks")
 	if hooks, err := loadHooksFromDir(hooksDir); err != nil {
-		return nil, fmt.Errorf("load .harness/hooks: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load .harness/hooks")
 	} else {
 		result.Config.Hooks = hooks
 	}
@@ -46,7 +47,7 @@ func LoadDirectory(baseDir string) (*LoadResult, error) {
 	// Load agents from .harness/agents/
 	agentsDir := filepath.Join(harnessDir, "agents")
 	if agents, err := loadAgentsFromDir(agentsDir); err != nil {
-		return nil, fmt.Errorf("load .harness/agents: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load .harness/agents")
 	} else {
 		result.Agents = agents
 	}
@@ -62,7 +63,7 @@ func loadToolsFromDir(dir string) ([]ToolConfig, error) {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read directory %s: %w", dir, err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loadtools", err, "read directory %s", dir)
 	}
 
 	var tools []ToolConfig
@@ -74,12 +75,12 @@ func loadToolsFromDir(dir string) ([]ToolConfig, error) {
 		name := strings.TrimSuffix(entry.Name(), ".md")
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			return nil, fmt.Errorf("read tool file %s: %w", entry.Name(), err)
+			return nil, errs.Wrap(errs.KindConfig, "config.loadtools", err, "read tool file %s", entry.Name())
 		}
 
 		tool, err := ParseToolMarkdown(data, name)
 		if err != nil {
-			return nil, fmt.Errorf("parse tool %s: %w", entry.Name(), err)
+			return nil, errs.Wrap(errs.KindConfig, "config.loadtools", err, "parse tool %s", entry.Name())
 		}
 
 		tools = append(tools, *tool)
@@ -96,7 +97,7 @@ func loadHooksFromDir(dir string) ([]HookConfig, error) {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read directory %s: %w", dir, err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loadhooks", err, "read directory %s", dir)
 	}
 
 	var hooks []HookConfig
@@ -108,12 +109,12 @@ func loadHooksFromDir(dir string) ([]HookConfig, error) {
 		name := strings.TrimSuffix(entry.Name(), ".md")
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			return nil, fmt.Errorf("read hook file %s: %w", entry.Name(), err)
+			return nil, errs.Wrap(errs.KindConfig, "config.loadhooks", err, "read hook file %s", entry.Name())
 		}
 
 		hook, err := ParseHookMarkdown(data, name)
 		if err != nil {
-			return nil, fmt.Errorf("parse hook %s: %w", entry.Name(), err)
+			return nil, errs.Wrap(errs.KindConfig, "config.loadhooks", err, "parse hook %s", entry.Name())
 		}
 
 		hooks = append(hooks, *hook)
@@ -130,7 +131,7 @@ func loadAgentsFromDir(dir string) (map[string]*AgentConfig, error) {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read directory %s: %w", dir, err)
+		return nil, errs.Wrap(errs.KindConfig, "config.loadagents", err, "read directory %s", dir)
 	}
 
 	agents := make(map[string]*AgentConfig)
@@ -142,16 +143,16 @@ func loadAgentsFromDir(dir string) (map[string]*AgentConfig, error) {
 		name := strings.TrimSuffix(entry.Name(), ".md")
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			return nil, fmt.Errorf("read agent file %s: %w", entry.Name(), err)
+			return nil, errs.Wrap(errs.KindConfig, "config.loadagents", err, "read agent file %s", entry.Name())
 		}
 
 		agent, err := ParseAgentMarkdown(data, name)
 		if err != nil {
-			return nil, fmt.Errorf("parse agent %s: %w", entry.Name(), err)
+			return nil, errs.Wrap(errs.KindConfig, "config.loadagents", err, "parse agent %s", entry.Name())
 		}
 
 		if _, exists := agents[name]; exists {
-			return nil, fmt.Errorf("duplicate agent name %q", name)
+			return nil, errs.Newf(errs.KindConfig, "config.loadagents", "duplicate agent name %q", name)
 		}
 		agents[name] = agent
 	}
@@ -204,7 +205,7 @@ func LoadFull(configPath string) (*Config, map[string]*AgentConfig, error) {
 	baseDir := filepath.Dir(configPath)
 	dirResult, err := LoadDirectory(baseDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load .harness directory: %w", err)
+		return nil, nil, errs.Wrap(errs.KindConfig, "config.loadfull", err, "load .harness directory")
 	}
 
 	MergeDirectoryResult(cfg, dirResult)
