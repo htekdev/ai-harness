@@ -55,10 +55,25 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
+	args, otelEndpoint, otelSample, otelService, err := extractOtelFlags(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
 	if err := harness.ConfigureLoggerFromFlags(logFormat, logLevel); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
+	if err := harness.ConfigureTracerFromFlags(otelEndpoint, otelSample, otelService); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	defer func() {
+		// Best-effort flush; never block exit longer than ~5s.
+		ctx, cancel := contextWithTimeout5s()
+		defer cancel()
+		_ = harness.ShutdownTracer(ctx)
+	}()
 	if len(args) == 0 {
 		printUsage()
 		os.Exit(1)
@@ -170,6 +185,12 @@ Flags:
                                (env: HARNESS_LOG_LEVEL)
   --log-format <format>        text (default) | json
                                (env: HARNESS_LOG_FORMAT)
+  --otel-endpoint <url>        OTLP/HTTP traces endpoint (e.g. http://localhost:4318)
+                               (env: HARNESS_OTEL_ENDPOINT; unset = tracing disabled)
+  --otel-sample <ratio>        Trace sample ratio in [0,1] (default 1.0)
+                               (env: HARNESS_OTEL_SAMPLE_RATIO)
+  --otel-service <name>        service.name resource attr (default ai-harness)
+                               (env: HARNESS_OTEL_SERVICE_NAME)
 
 Examples:
   harness scaffold my-agent            # create project

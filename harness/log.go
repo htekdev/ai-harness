@@ -81,9 +81,9 @@ func NewLogger(format, level string, w io.Writer) (*slog.Logger, error) {
 
 	switch normalizeFormat(format) {
 	case "json":
-		return slog.New(slog.NewJSONHandler(w, opts)), nil
+		return slog.New(NewTraceContextHandler(slog.NewJSONHandler(w, opts))), nil
 	case "text":
-		return slog.New(slog.NewTextHandler(w, opts)), nil
+		return slog.New(NewTraceContextHandler(slog.NewTextHandler(w, opts))), nil
 	default:
 		return nil, fmt.Errorf("invalid %s=%q (want text|json)", EnvLogFormat, format)
 	}
