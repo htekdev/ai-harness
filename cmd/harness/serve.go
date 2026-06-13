@@ -16,7 +16,16 @@ import (
 	"github.com/htekdev/ai-harness/config"
 	"github.com/htekdev/ai-harness/harness"
 	"github.com/htekdev/ai-harness/input"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// serveTracerName is the OTel instrumentation library name; matches the
+// value used by agent/delegation/tools so all spans share one library.
+const serveTracerName = "github.com/htekdev/ai-harness"
 
 // cmdServe runs a harness in non-REPL mode that consumes input from one or more
 // configured Sources (stdin, telegram, ...) and routes responses back via Replier
@@ -163,9 +172,16 @@ func resolveSources(cliSources, telegramChats []string, telegramPoll int, mw mes
 
 // serveJob couples an Event with the Source that produced it so the per-session
 // worker can route replies back to origin via Replier when supported.
+//
+// ctx carries the `source.pump` span context started by the pump goroutine so
+// the downstream `agent.turn` span nests as a child. span is held separately
+// so the session worker can end it (and record errors) after the turn
+// completes. Both are nil for tests/callers that bypass the pump path.
 type serveJob struct {
 	ev     input.Event
 	source input.Source
+	ctx    context.Context
+	span   trace.Span
 }
 
 // runServe is the multi-source select loop. Exported via package-internal helpers
@@ -193,9 +209,21 @@ func runServe(ctx context.Context, run turnRunner, srcs []input.Source) error {
 					harness.Logger().Error("source read error", "source", s.Name(), "error", err)
 					return
 				}
+				// Phase 5.2 PR-C: open a `source.pump` span per event. The
+				// span lives until the session worker finishes the turn so
+				// `agent.turn` (and its descendants) nest under it. Zero
+				// overhead when tracing disabled (noop tracer is the OTel
+				// default global).
+				jobCtx, span := otel.Tracer(serveTracerName).Start(ctx, "source.pump")
+				span.SetAttributes(
+					attribute.String("source.name", s.Name()),
+					attribute.String("source.event.session_key", ev.SessionKey),
+					attribute.Int("source.event.text_len", len(ev.Text)),
+				)
 				select {
-				case events <- serveJob{ev: ev, source: s}:
+				case events <- serveJob{ev: ev, source: s, ctx: jobCtx, span: span}:
 				case <-ctx.Done():
+					span.End()
 					return
 				}
 			}
@@ -267,6 +295,10 @@ loop:
 }
 
 // sessionWorker drains turn jobs for a single SessionKey serially.
+//
+// Each job carries its own ctx (the `source.pump` span context from the pump
+// goroutine) so `agent.turn` nests under `source.pump`. The span is ended
+// here, after handleResult, so reply latency is included in the pump span.
 func sessionWorker(ctx context.Context, run turnRunner, key string, ch <-chan serveJob) {
 	for {
 		select {
@@ -276,8 +308,19 @@ func sessionWorker(ctx context.Context, run turnRunner, key string, ch <-chan se
 			if !ok {
 				return
 			}
-			result, err := run(ctx, j.ev.Text)
-			handleResult(ctx, j, result, err)
+			turnCtx := ctx
+			if j.ctx != nil {
+				turnCtx = j.ctx
+			}
+			result, err := run(turnCtx, j.ev.Text)
+			handleResult(turnCtx, j, result, err)
+			if j.span != nil {
+				if err != nil {
+					j.span.RecordError(err)
+					j.span.SetStatus(otelcodes.Error, err.Error())
+				}
+				j.span.End()
+			}
 		}
 	}
 }

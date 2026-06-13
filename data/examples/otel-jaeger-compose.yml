@@ -1,0 +1,61 @@
+# AI Harness — Jaeger / OpenTelemetry Compose Example
+#
+# Phase 5.2 PR-C: drop-in docker-compose for local distributed tracing.
+#
+# Usage:
+#
+#   1. Start Jaeger:
+#        docker compose -f data/examples/otel-jaeger-compose.yml up -d
+#
+#   2. Run the harness with OTLP/HTTP exporter pointed at Jaeger:
+#        export HARNESS_OTEL_ENDPOINT=http://localhost:4318
+#        export HARNESS_OTEL_SAMPLE_RATIO=1.0
+#        export HARNESS_OTEL_SERVICE_NAME=ai-harness-dev
+#        ./harness serve --serve-config harness.md
+#
+#      ...or pass equivalent CLI flags:
+#        ./harness --otel-endpoint=http://localhost:4318 \
+#                  --otel-sample=1.0 \
+#                  --otel-service=ai-harness-dev \
+#                  serve --serve-config harness.md
+#
+#   3. Open the Jaeger UI:
+#        http://localhost:16686
+#
+#   4. Send a message into one of the configured Sources (telegram, stdin, ...)
+#      and look for the trace under the `ai-harness-dev` service. Each event
+#      pumped by a Source produces this hierarchy:
+#
+#        source.pump                       <-- per inbound event (PR-C)
+#        └── agent.turn                    <-- one per Run() call (PR-B)
+#            ├── tool.call                 <-- per tool execution (PR-B)
+#            └── delegation.execute        <-- when sub-agents fire (PR-B)
+#                └── agent.turn (child)
+#
+#   5. Tear down:
+#        docker compose -f data/examples/otel-jaeger-compose.yml down
+#
+# Notes:
+#   - The harness ships a noop tracer by default. Spans only flow when
+#     HARNESS_OTEL_ENDPOINT (or --otel-endpoint) is non-empty, so leaving
+#     this compose stopped is safe in production.
+#   - Sample ratio 1.0 captures every trace; lower it for hot prod paths
+#     (e.g. 0.1 = 10%).
+#   - Only OTLP/HTTP is supported in v1. Set the protocol explicitly via
+#     HARNESS_OTEL_PROTOCOL=http if your tooling defaults differ.
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.59
+    container_name: ai-harness-jaeger
+    restart: unless-stopped
+    environment:
+      # Enable the OTLP receivers shipped with all-in-one (gRPC + HTTP).
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      # Jaeger UI
+      - "16686:16686"
+      # OTLP/HTTP — what HARNESS_OTEL_ENDPOINT should point at.
+      - "4318:4318"
+      # OTLP/gRPC (reserved for future SDK protocol support).
+      - "4317:4317"
