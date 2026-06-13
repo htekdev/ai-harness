@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/htekdev/ai-harness/agent"
+	"github.com/htekdev/ai-harness/config"
 	"github.com/htekdev/ai-harness/harness"
 	"github.com/htekdev/ai-harness/input"
 )
@@ -39,7 +40,10 @@ import (
 //	--meshwire-poll <secs>   MeshWire long-poll timeout (default 30, max 60)
 //	--meshwire-base <url>    Override MeshWire API base URL (default https://meshwire.io)
 //
-// If no --source flag is given, defaults to stdin (drop-in for harness run).
+// If neither --source flags nor a `serve:` block in harness.md frontmatter is
+// present, defaults to stdin (drop-in for harness run). When `serve:` is
+// declared in the config, it provides the source set unless overridden by
+// --source flags on the command line.
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	configPath := fs.String("config", "", "Path to harness config file")
@@ -57,14 +61,18 @@ func cmdServe(args []string) error {
 	meshwireBase := fs.String("meshwire-base", "", "Override MeshWire API base URL (default https://meshwire.io)")
 	fs.Parse(args)
 
-	if len(sources) == 0 {
-		sources = []string{"stdin"}
-	}
-
 	cfgPath := resolveConfig(*configPath)
 	h, err := harness.New(cfgPath)
 	if err != nil {
 		return fmt.Errorf("loading harness from %s: %w", cfgPath, err)
+	}
+
+	// Re-read the raw config to pick up the `serve:` block (Harness doesn't
+	// expose its config struct directly). LoadFull is what Harness used too,
+	// so this is consistent and cheap.
+	rawCfg, _, err := config.LoadFull(cfgPath)
+	if err != nil {
+		return fmt.Errorf("loading serve config from %s: %w", cfgPath, err)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -75,9 +83,15 @@ func cmdServe(args []string) error {
 	}
 	defer h.EndSession(ctx)
 
-	// Construct sources.
-	srcs, err := buildSources(sources, telegramChats, *telegramPoll,
-		*meshwireMesh, *meshwireAgent, meshwireSenders, *meshwirePoll, *meshwireBase)
+	// Resolve sources: CLI flags win > serve: config block > stdin default.
+	mwCLI := meshwireCLI{
+		Mesh:    *meshwireMesh,
+		Agent:   *meshwireAgent,
+		Senders: meshwireSenders,
+		Poll:    *meshwirePoll,
+		Base:    *meshwireBase,
+	}
+	srcs, sourceLabels, err := resolveSources(sources, telegramChats, *telegramPoll, mwCLI, rawCfg.Serve)
 	if err != nil {
 		return err
 	}
@@ -89,11 +103,57 @@ func cmdServe(args []string) error {
 
 	fmt.Println("🤖 AI Harness — Serve Mode")
 	fmt.Printf("   config:  %s\n", cfgPath)
-	fmt.Printf("   sources: %s\n", strings.Join(sources, ", "))
+	fmt.Printf("   sources: %s\n", strings.Join(sourceLabels, ", "))
 	fmt.Println("   (Ctrl-C to stop)")
 	fmt.Println("---")
 
 	return runServe(ctx, h, srcs)
+}
+
+// resolveSources picks the source set with this precedence:
+//  1. --source CLI flags (telegramChats / telegramPoll apply)
+//  2. serve.sources in harness.md frontmatter
+//  3. stdin default
+//
+// It returns the constructed input.Source slice and a parallel label slice
+// (e.g. ["stdin", "telegram"]) for human-friendly logging.
+// meshwireCLI groups the MeshWire-specific CLI flags so resolveSources keeps a
+// stable signature even as new per-source flag sets are added.
+type meshwireCLI struct {
+	Mesh    string
+	Agent   string
+	Senders []string
+	Poll    int
+	Base    string
+}
+
+func resolveSources(cliSources, telegramChats []string, telegramPoll int, mw meshwireCLI, serveCfg *config.ServeConfig) ([]input.Source, []string, error) {
+	// Path 1: CLI flags present.
+	if len(cliSources) > 0 {
+		srcs, err := buildSources(cliSources, telegramChats, telegramPoll,
+			mw.Mesh, mw.Agent, mw.Senders, mw.Poll, mw.Base)
+		if err != nil {
+			return nil, nil, err
+		}
+		return srcs, append([]string(nil), cliSources...), nil
+	}
+
+	// Path 2: serve: config block.
+	if serveCfg != nil && len(serveCfg.Sources) > 0 {
+		srcs, labels, err := buildSourcesFromConfig(serveCfg.Sources)
+		if err != nil {
+			return nil, nil, err
+		}
+		return srcs, labels, nil
+	}
+
+	// Path 3: stdin default.
+	srcs, err := buildSources([]string{"stdin"}, nil, 25,
+		"", "", nil, 0, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	return srcs, []string{"stdin"}, nil
 }
 
 // serveJob couples an Event with the Source that produced it so the per-session
@@ -290,7 +350,73 @@ func buildSources(names []string, telegramChats []string, telegramPoll int,
 	return out, nil
 }
 
-// multiFlag is a flag.Value that accumulates repeated --flag values.
+// buildSourcesFromConfig is the declarative counterpart to buildSources: it
+// accepts a parsed `serve.sources` list from harness.md frontmatter and
+// constructs the matching input.Source instances. Secrets are read from the
+// env var named by each entry's `token_env` — never from the config itself.
+//
+// Returns the constructed sources alongside a parallel label slice for logging.
+func buildSourcesFromConfig(srcs []config.ServeSourceConfig) ([]input.Source, []string, error) {
+	out := make([]input.Source, 0, len(srcs))
+	labels := make([]string, 0, len(srcs))
+	for i, sc := range srcs {
+		t := sc.NormalizedType()
+		switch t {
+		case "stdin":
+			out = append(out, input.NewStdinSource(os.Stdin, func() { fmt.Print("\n> ") }))
+			labels = append(labels, "stdin")
+		case "telegram":
+			token := os.Getenv(sc.TokenEnv)
+			if token == "" {
+				return nil, nil, fmt.Errorf("serve.sources[%d] (telegram): env var %s is empty or unset", i, sc.TokenEnv)
+			}
+			poll := sc.PollTimeoutSeconds
+			if poll == 0 {
+				poll = 25
+			}
+			cfg := input.TelegramConfig{
+				Token:              token,
+				ChatAllowlist:      append([]int64(nil), sc.ChatAllowlist...),
+				PollTimeoutSeconds: poll,
+			}
+			if sc.OffsetPath != "" {
+				cfg.OffsetStore = input.NewFileOffsetStore(sc.OffsetPath)
+			}
+			src, err := input.NewTelegramSource(cfg)
+			if err != nil {
+				return nil, nil, fmt.Errorf("serve.sources[%d] (telegram): %w", i, err)
+			}
+			out = append(out, src)
+			labels = append(labels, "telegram")
+		case "meshwire":
+			token := os.Getenv(sc.TokenEnv)
+			if token == "" {
+				return nil, nil, fmt.Errorf("serve.sources[%d] (meshwire): env var %s is empty or unset", i, sc.TokenEnv)
+			}
+			poll := sc.PollTimeoutSeconds
+			if poll == 0 {
+				poll = 30
+			}
+			src, err := input.NewMeshWireSource(input.MeshWireConfig{
+				Token:              token,
+				MeshID:             sc.MeshID,
+				AgentID:            sc.AgentID,
+				SenderAllowlist:    append([]string(nil), sc.SenderAllowlist...),
+				PollTimeoutSeconds: poll,
+				APIBase:            sc.BaseURL,
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("serve.sources[%d] (meshwire): %w", i, err)
+			}
+			out = append(out, src)
+			labels = append(labels, "meshwire")
+		default:
+			return nil, nil, fmt.Errorf("serve.sources[%d]: unknown type %q", i, sc.Type)
+		}
+	}
+	return out, labels, nil
+}
+
 type multiFlag []string
 
 func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
