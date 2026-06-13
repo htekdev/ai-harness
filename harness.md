@@ -235,3 +235,46 @@ harness.SetLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 Stdlib `log.Logger` is no longer used internally; any external integration
 expecting a plain prefix-and-flags logger should adapt via `slog.NewLogLogger`.
 
+## Distributed Tracing (Phase 5.2)
+
+Tracing ships disabled by default — set `HARNESS_OTEL_ENDPOINT` (or
+`--otel-endpoint`) to turn it on. When enabled, every `slog` record
+auto-carries `trace_id` and `span_id` attrs via the `TraceContextHandler`
+middleware that wraps the standard handler. PR-A (this release) installs the
+tracer provider, OTLP/HTTP exporter, sampler, and slog↔trace bridge. Span
+instrumentation for `agent.Run`, `delegation.Execute`, and `tools.Call` ships
+in PR-B.
+
+```bash
+# Send traces to a local Jaeger / Tempo / Otel Collector endpoint.
+export HARNESS_OTEL_ENDPOINT=http://localhost:4318
+export HARNESS_OTEL_SAMPLE_RATIO=0.25
+harness --log-format json serve --source telegram --telegram-chat 12345
+```
+
+**Flags** (global, accepted before any subcommand; mirror the env vars):
+
+| Flag | Values | Default | Env var |
+|------|--------|---------|---------|
+| `--otel-endpoint` | OTLP/HTTP URL | _disabled_ | `HARNESS_OTEL_ENDPOINT` |
+| `--otel-sample` | float in `[0,1]` | `1.0` | `HARNESS_OTEL_SAMPLE_RATIO` |
+| `--otel-service` | string | `ai-harness` | `HARNESS_OTEL_SERVICE_NAME` |
+
+The transport is OTLP/HTTP (`/v1/traces`); gRPC support is reserved for a
+later release. The tracer provider is gracefully shut down (5s timeout) on
+process exit so the exporter can drain in-flight batches.
+
+**Embedding in Go:**
+
+```go
+import "github.com/htekdev/ai-harness/harness"
+
+// Start a span — no-op when tracing is disabled.
+ctx, span := harness.Tracer().Start(ctx, "my-extension.work")
+defer span.End()
+
+// Install a custom TracerProvider (e.g., from your own SDK setup).
+harness.SetTracerProvider(myTP, myTP.Shutdown)
+```
+
+
