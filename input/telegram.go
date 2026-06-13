@@ -35,6 +35,7 @@ type TelegramSource struct {
 	offset        int64  // last update_id seen + 1
 	updates       []tgUpdate
 	updatesCursor int
+	offsetStore   OffsetStore // optional; persists offset across restarts
 }
 
 // TelegramConfig configures a TelegramSource.
@@ -54,6 +55,12 @@ type TelegramConfig struct {
 
 	// APIBase overrides "https://api.telegram.org" (for tests/mocks).
 	APIBase string
+
+	// OffsetStore persists the last-seen update_id across process restarts.
+	// If nil, the offset lives only in memory and Telegram's ~24h server-side
+	// buffer becomes the recovery window — the bot may re-process old messages
+	// after a crash. For production use, supply a FileOffsetStore.
+	OffsetStore OffsetStore
 }
 
 // NewTelegramSource constructs a TelegramSource. Returns an error if Token is empty
@@ -84,13 +91,25 @@ func NewTelegramSource(cfg TelegramConfig) (*TelegramSource, error) {
 	if apiBase == "" {
 		apiBase = "https://api.telegram.org"
 	}
-	return &TelegramSource{
+	src := &TelegramSource{
 		token:        cfg.Token,
 		allowlist:    allow,
 		pollTimeoutS: timeout,
 		httpClient:   client,
 		apiBase:      apiBase,
-	}, nil
+		offsetStore:  cfg.OffsetStore,
+	}
+	if src.offsetStore != nil {
+		stored, err := src.offsetStore.Load()
+		if err != nil {
+			return nil, fmt.Errorf("telegram: load offset: %w", err)
+		}
+		if stored < 0 {
+			stored = 0
+		}
+		src.offset = stored
+	}
+	return src, nil
 }
 
 // Name returns the source identifier.
@@ -109,6 +128,11 @@ func (t *TelegramSource) Read(ctx context.Context) (Event, error) {
 			t.updatesCursor++
 			if u.UpdateID >= t.offset {
 				t.offset = u.UpdateID + 1
+				if t.offsetStore != nil {
+					if err := t.offsetStore.Save(t.offset); err != nil {
+						return Event{}, fmt.Errorf("telegram: persist offset: %w", err)
+					}
+				}
 			}
 			if u.Message == nil || u.Message.Text == "" {
 				continue

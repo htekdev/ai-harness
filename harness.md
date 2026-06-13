@@ -152,6 +152,9 @@ tokens) are always read from env vars — never embed them in `harness.md`.
 - **Replier routing:** Sources that implement `input.Replier` (e.g. telegram)
   receive `result.Response` back via `Reply()`. The stdin source prints to
   stdout instead.
-- **Offset durability:** the telegram source currently tracks `update_id` in
-  memory only — on restart the bot resumes from Telegram's server-side cursor
-  (~24h window). Durable offset persistence is tracked as a Phase 3 follow-up.
+- **Offset durability:** the telegram source supports a pluggable
+  `input.OffsetStore`. Pass `input.NewFileOffsetStore("/var/lib/harness/telegram.offset.json")`
+  via `TelegramConfig.OffsetStore` to persist the last-acked `update_id`
+  across restarts using an atomic write-then-rename. Without a store, the
+  offset lives only in memory and the bot resumes from Telegram's server-side
+  cursor (~24h window) after a crash — fine for dev, not for production.
