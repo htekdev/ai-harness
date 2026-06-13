@@ -42,12 +42,22 @@ type DelegationConfig struct {
 
 // ModelConfig defines the LLM provider and parameters.
 type ModelConfig struct {
-	Name        string  `yaml:"name" json:"name"`
-	Provider    string  `yaml:"provider" json:"provider"`
-	MaxTokens   int     `yaml:"max_tokens" json:"max_tokens"`
-	Temperature float64 `yaml:"temperature" json:"temperature"`
-	BaseURL     string  `yaml:"base_url" json:"base_url"`
-	APIKeyEnv   string  `yaml:"api_key_env" json:"api_key_env"`
+	Name        string       `yaml:"name" json:"name"`
+	Provider    string       `yaml:"provider" json:"provider"`
+	MaxTokens   int          `yaml:"max_tokens" json:"max_tokens"`
+	Temperature float64      `yaml:"temperature" json:"temperature"`
+	BaseURL     string       `yaml:"base_url" json:"base_url"`
+	APIKeyEnv   string       `yaml:"api_key_env" json:"api_key_env"`
+	Retry       *RetryConfig `yaml:"retry,omitempty" json:"retry,omitempty"`
+}
+
+// RetryConfig configures completion-client retry behavior per model.
+// All fields are optional; zero values mean "use the harness default".
+type RetryConfig struct {
+	MaxRetries       *int    `yaml:"max_retries,omitempty" json:"max_retries,omitempty"`
+	InitialBackoffMS int     `yaml:"initial_backoff_ms,omitempty" json:"initial_backoff_ms,omitempty"`
+	MaxBackoffMS     int     `yaml:"max_backoff_ms,omitempty" json:"max_backoff_ms,omitempty"`
+	Multiplier       float64 `yaml:"multiplier,omitempty" json:"multiplier,omitempty"`
 }
 
 // ContextConfig defines context management parameters.
@@ -158,6 +168,14 @@ func (c *Config) Validate() error {
 	if c.Model.MaxTokens <= 0 {
 		issues = append(issues, "model.max_tokens must be greater than 0")
 	}
+	if err := validateRetry("model", c.Model.Retry); err != nil {
+		issues = append(issues, err.Error())
+	}
+	for i, m := range c.Models {
+		if err := validateRetry(fmt.Sprintf("models[%d]", i), m.Retry); err != nil {
+			issues = append(issues, err.Error())
+		}
+	}
 
 	seenTools := make(map[string]struct{}, len(c.Tools))
 	for i, tool := range c.Tools {
@@ -211,4 +229,24 @@ func (c *Config) BaseURL() string {
 	default:
 		return "https://api.openai.com/v1"
 	}
+}
+
+// validateRetry checks per-field bounds on a RetryConfig.
+func validateRetry(prefix string, r *RetryConfig) error {
+	if r == nil {
+		return nil
+	}
+	if r.MaxRetries != nil && *r.MaxRetries < 0 {
+		return fmt.Errorf("%s.retry.max_retries must be >= 0", prefix)
+	}
+	if r.InitialBackoffMS < 0 {
+		return fmt.Errorf("%s.retry.initial_backoff_ms must be >= 0", prefix)
+	}
+	if r.MaxBackoffMS < 0 {
+		return fmt.Errorf("%s.retry.max_backoff_ms must be >= 0", prefix)
+	}
+	if r.Multiplier < 0 {
+		return fmt.Errorf("%s.retry.multiplier must be >= 0", prefix)
+	}
+	return nil
 }
