@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel"
+	otelcodes "go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	otelcodes "go.opentelemetry.io/otel/codes"
 )
 
 // Phase 5.2 PR-B: span instrumentation for Registry.Execute.
