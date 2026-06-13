@@ -20,6 +20,7 @@ import (
 	"github.com/htekdev/ai-harness/agent"
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
+	"github.com/htekdev/ai-harness/harness/errs"
 	"github.com/htekdev/ai-harness/hooks"
 	"github.com/htekdev/ai-harness/scripting"
 	"github.com/htekdev/ai-harness/tools"
@@ -194,7 +195,7 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (result *Result, e
 
 	// Check depth limit
 	if currentDepth >= d.maxDepth {
-		return nil, fmt.Errorf("delegation depth limit reached (%d/%d)", currentDepth, d.maxDepth)
+		return nil, errs.Newf(errs.KindDelegation, "delegation.execute", "delegation depth limit reached (%d/%d)", currentDepth, d.maxDepth)
 	}
 
 	// Resolve named agent if specified
@@ -361,7 +362,7 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (result *Result, e
 	childCtx := WithDepth(ctx, nextDepth)
 	turnResult, err := delegateAgent.Run(childCtx, req.Task)
 	if err != nil {
-		return nil, fmt.Errorf("delegate execution: %w", err)
+		return nil, errs.Wrap(errs.KindDelegation, "delegation.execute", err, "delegate agent run failed")
 	}
 
 	result = &Result{

@@ -13,6 +13,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/htekdev/ai-harness/harness/errs"
 )
 
 // tracerName is the OTel instrumentation library name shared across the
@@ -99,17 +101,17 @@ func NewRegistry() *Registry {
 // Register adds a tool to the registry. Returns an error if a tool with the same name already exists.
 func (r *Registry) Register(def Definition, handler Handler) error {
 	if def.Name == "" {
-		return fmt.Errorf("tool name cannot be empty")
+		return errs.Newf(errs.KindTool, "tools.register", "tool name cannot be empty")
 	}
 	if handler == nil {
-		return fmt.Errorf("tool handler cannot be nil")
+		return errs.Newf(errs.KindTool, "tools.register", "tool handler cannot be nil")
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if _, exists := r.tools[def.Name]; exists {
-		return fmt.Errorf("tool %q already registered", def.Name)
+		return errs.Newf(errs.KindTool, "tools.register", "tool %q already registered", def.Name)
 	}
 
 	r.tools[def.Name] = registration{
@@ -135,10 +137,10 @@ func (r *Registry) Unregister(name string) bool {
 // Replace registers a tool, overwriting any existing tool with the same name.
 func (r *Registry) Replace(def Definition, handler Handler) error {
 	if def.Name == "" {
-		return fmt.Errorf("tool name cannot be empty")
+		return errs.Newf(errs.KindTool, "tools.replace", "tool name cannot be empty")
 	}
 	if handler == nil {
-		return fmt.Errorf("tool handler cannot be nil")
+		return errs.Newf(errs.KindTool, "tools.replace", "tool handler cannot be nil")
 	}
 
 	r.mu.Lock()
