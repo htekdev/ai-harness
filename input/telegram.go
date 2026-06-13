@@ -132,7 +132,7 @@ func (t *TelegramSource) Read(ctx context.Context) (Event, error) {
 				t.offset = u.UpdateID + 1
 				if t.offsetStore != nil {
 					if err := t.offsetStore.Save(t.offset); err != nil {
-							return Event{}, errs.Wrap(errs.KindPersistence, "input.telegram.read", err, "telegram: persist offset")
+						return Event{}, errs.Wrap(errs.KindPersistence, "input.telegram.read", err, "telegram: persist offset")
 					}
 				}
 			}

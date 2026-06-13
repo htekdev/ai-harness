@@ -162,7 +162,7 @@ func (m *MeshWireSource) Read(ctx context.Context) (Event, error) {
 			m.lastSeenID = msg.MessageID
 			if m.offsetStore != nil {
 				if err := m.offsetStore.Save(m.lastSeenID); err != nil {
-						return Event{}, errs.Wrap(errs.KindPersistence, "input.meshwire.read", err, "meshwire: persist offset")
+					return Event{}, errs.Wrap(errs.KindPersistence, "input.meshwire.read", err, "meshwire: persist offset")
 				}
 			}
 			if msg.Content == "" {
