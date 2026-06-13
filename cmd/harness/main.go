@@ -59,6 +59,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "serve":
+		if err := cmdServe(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "init":
 		if err := cmdInit(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -125,7 +130,8 @@ Golden path  (install → scaffold → init → develop → validate → deploy 
   scaffold   Create a new harness project in a new directory
   init       Initialize a harness in the current directory
   validate   Validate harness configuration
-  run        Start an interactive harness session
+  run        Start an interactive harness session (stdin REPL)
+  serve      Multi-source session: stdin + telegram + future input sources
   deploy     Run the harness non-interactively (CI/CD, single prompt in/out)
   inspect    Snapshot of runtime state: tools, hooks, agents, artifacts
 
