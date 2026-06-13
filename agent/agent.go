@@ -18,6 +18,7 @@ import (
 	"github.com/htekdev/ai-harness/artifact"
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
+	"github.com/htekdev/ai-harness/harness/errs"
 	"github.com/htekdev/ai-harness/hooks"
 	"github.com/htekdev/ai-harness/scripting"
 	"github.com/htekdev/ai-harness/tools"
@@ -252,7 +253,9 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 		// Call the model
 		resp, err := a.client.Complete(turnCtx, req)
 		if err != nil {
-			return nil, fmt.Errorf("completion error: %w", err)
+			// Provider/network errors: classify as KindCompletion and mark
+			// retriable so hooks/operators can implement backoff strategies.
+			return nil, errs.Retriable(errs.KindCompletion, "agent.completion", err, "completion call failed")
 		}
 
 		// Fire completion.post hook
@@ -272,7 +275,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 		result.Usage.TotalTokens += resp.Usage.TotalTokens
 
 		if len(resp.Choices) == 0 {
-			return nil, fmt.Errorf("no choices in response")
+			return nil, errs.Newf(errs.KindCompletion, "agent.completion", "no choices in response")
 		}
 
 		choice := resp.Choices[0]
@@ -372,7 +375,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 	}
 
 	if !completed {
-		return nil, fmt.Errorf("max tool iterations reached (%d)", a.maxToolIterations)
+		return nil, errs.Newf(errs.KindCompletion, "agent.run", "max tool iterations reached (%d)", a.maxToolIterations)
 	}
 
 	// Fire turn.end hook

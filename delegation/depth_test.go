@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/htekdev/ai-harness/harness/errs"
 )
 
 func TestGetDepth_Default(t *testing.T) {
@@ -40,6 +42,11 @@ func TestDepthLimit(t *testing.T) {
 	}
 	if !contains(err.Error(), "depth limit") {
 		t.Errorf("unexpected error: %v", err)
+	}
+	// Phase 5.3: depth-limit errors must be classified as KindDelegation so
+	// dashboards / hooks can react without parsing message text.
+	if k := errs.KindOf(err); k != errs.KindDelegation {
+		t.Errorf("KindOf(depth-limit err) = %v, want KindDelegation", k)
 	}
 }
 
