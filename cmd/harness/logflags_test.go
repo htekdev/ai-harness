@@ -20,10 +20,10 @@ func TestExtractLogFlags(t *testing.T) {
 			out:  []string{"run", "--config", "harness.md"},
 		},
 		{
-			name:   "equals form",
-			in:     []string{"--log-level=debug", "serve", "--source", "stdin"},
-			out:    []string{"serve", "--source", "stdin"},
-			level:  "debug",
+			name:  "equals form",
+			in:    []string{"--log-level=debug", "serve", "--source", "stdin"},
+			out:   []string{"serve", "--source", "stdin"},
+			level: "debug",
 		},
 		{
 			name:   "space form",
