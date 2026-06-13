@@ -14,6 +14,7 @@ import (
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
 	"github.com/htekdev/ai-harness/delegation"
+	"github.com/htekdev/ai-harness/harness/errs"
 	"github.com/htekdev/ai-harness/hooks"
 	"github.com/htekdev/ai-harness/scripting"
 	"github.com/htekdev/ai-harness/tools"
@@ -115,7 +116,7 @@ type SuiteResult struct {
 func (r *Runner) Run(ctx context.Context) (*SuiteResult, error) {
 	cases, err := LoadCases(r.Config.CasesDir)
 	if err != nil {
-		return nil, fmt.Errorf("load cases: %w", err)
+		return nil, errs.Wrap(errs.KindConfig, "evals.Runner.Run", err, "load cases")
 	}
 
 	return r.RunCases(ctx, cases)
@@ -125,7 +126,7 @@ func (r *Runner) Run(ctx context.Context) (*SuiteResult, error) {
 func (r *Runner) RunCases(ctx context.Context, cases []*EvalCase) (*SuiteResult, error) {
 	apiKey := os.Getenv(r.Config.APIKeyEnv)
 	if apiKey == "" {
-		return nil, fmt.Errorf("environment variable %q is not set", r.Config.APIKeyEnv)
+		return nil, errs.Newf(errs.KindConfig, "evals.Runner.RunCases", "environment variable %q is not set", r.Config.APIKeyEnv)
 	}
 
 	start := time.Now()
@@ -286,7 +287,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 		if tc.Script != "" {
 			h, err := scripting.NewToolHandler(engine, tc.Name, tc.Script)
 			if err != nil {
-				return transcript, fmt.Errorf("compile tool %q: %w", tc.Name, err)
+				return transcript, errs.Wrap(errs.KindTool, "evals.runCase.compileTool", err, "compile tool %q", tc.Name)
 			}
 			handler = h
 		} else {
@@ -313,7 +314,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 		}
 
 		if err := registry.Register(def, handler); err != nil {
-			return transcript, fmt.Errorf("register tool %q: %w", tc.Name, err)
+			return transcript, errs.Wrap(errs.KindTool, "evals.runCase.registerTool", err, "register tool %q", tc.Name)
 		}
 	}
 
@@ -325,7 +326,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 		if hc.Script != "" {
 			h, err := scripting.NewConditionalHookHandler(engine, hc.Name, hc.When, hc.Script)
 			if err != nil {
-				return transcript, fmt.Errorf("compile hook %q: %w", hc.Name, err)
+				return transcript, errs.Wrap(errs.KindConfig, "evals.runCase.compileHook", err, "compile hook %q", hc.Name)
 			}
 			handler = h
 		} else {
@@ -412,7 +413,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 		}
 
 		if err := registry.Register(delegateDef, wrappedDelegate); err != nil {
-			return transcript, fmt.Errorf("register delegate: %w", err)
+			return transcript, errs.Wrap(errs.KindDelegation, "evals.runCase.registerDelegate", err, "register delegate")
 		}
 	}
 
@@ -433,7 +434,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 
 	// Start session
 	if err := ag.RunSession(ctx); err != nil {
-		return transcript, fmt.Errorf("start session: %w", err)
+		return transcript, errs.Wrap(errs.KindPersistence, "evals.runCase.startSession", err, "start session")
 	}
 	defer ag.EndSession(ctx)
 

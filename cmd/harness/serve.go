@@ -15,6 +15,7 @@ import (
 	"github.com/htekdev/ai-harness/agent"
 	"github.com/htekdev/ai-harness/config"
 	"github.com/htekdev/ai-harness/harness"
+	"github.com/htekdev/ai-harness/harness/errs"
 	"github.com/htekdev/ai-harness/input"
 
 	"go.opentelemetry.io/otel"
@@ -73,7 +74,7 @@ func cmdServe(args []string) error {
 	cfgPath := resolveConfig(*configPath)
 	h, err := harness.New(cfgPath)
 	if err != nil {
-		return fmt.Errorf("loading harness from %s: %w", cfgPath, err)
+		return errs.Wrap(errs.KindConfig, "serve.loadHarness", err, "loading harness from %s", cfgPath)
 	}
 
 	// Re-read the raw config to pick up the `serve:` block (Harness doesn't
@@ -81,14 +82,14 @@ func cmdServe(args []string) error {
 	// so this is consistent and cheap.
 	rawCfg, _, err := config.LoadFull(cfgPath)
 	if err != nil {
-		return fmt.Errorf("loading serve config from %s: %w", cfgPath, err)
+		return errs.Wrap(errs.KindConfig, "serve.loadServeConfig", err, "loading serve config from %s", cfgPath)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	if err := h.RunSession(ctx); err != nil {
-		return fmt.Errorf("starting session: %w", err)
+		return errs.Wrap(errs.KindPersistence, "serve.runSession", err, "starting session")
 	}
 	defer h.EndSession(ctx)
 
@@ -374,16 +375,16 @@ func buildSources(names []string, telegramChats []string, telegramPoll int,
 		case "meshwire":
 			token := os.Getenv("MESHWIRE_TOKEN")
 			if token == "" {
-				return nil, fmt.Errorf("meshwire source requires MESHWIRE_TOKEN env var")
+				return nil, errs.Newf(errs.KindConfig, "serve.buildSources.meshwire", "meshwire source requires MESHWIRE_TOKEN env var")
 			}
 			if meshwireMesh == "" {
-				return nil, fmt.Errorf("meshwire source requires --meshwire-mesh <id>")
+				return nil, errs.Newf(errs.KindConfig, "serve.buildSources.meshwire", "meshwire source requires --meshwire-mesh <id>")
 			}
 			if meshwireAgent == "" {
-				return nil, fmt.Errorf("meshwire source requires --meshwire-agent <id>")
+				return nil, errs.Newf(errs.KindConfig, "serve.buildSources.meshwire", "meshwire source requires --meshwire-agent <id>")
 			}
 			if len(meshwireSenders) == 0 {
-				return nil, fmt.Errorf("meshwire source requires at least one --meshwire-sender <id> (no wildcard in v1)")
+				return nil, errs.Newf(errs.KindConfig, "serve.buildSources.meshwire", "meshwire source requires at least one --meshwire-sender <id> (no wildcard in v1)")
 			}
 			src, err := input.NewMeshWireSource(input.MeshWireConfig{
 				Token:              token,
@@ -400,13 +401,13 @@ func buildSources(names []string, telegramChats []string, telegramPoll int,
 		case "telegram":
 			token := os.Getenv("TELEGRAM_BOT_TOKEN")
 			if token == "" {
-				return nil, fmt.Errorf("telegram source requires TELEGRAM_BOT_TOKEN env var")
+				return nil, errs.Newf(errs.KindConfig, "serve.buildSources.telegram", "telegram source requires TELEGRAM_BOT_TOKEN env var")
 			}
 			ids := make([]int64, 0, len(telegramChats))
 			for _, raw := range telegramChats {
 				id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 				if err != nil {
-					return nil, fmt.Errorf("invalid --telegram-chat %q: %w", raw, err)
+					return nil, errs.Wrap(errs.KindConfig, "serve.buildSources.telegram", err, "invalid --telegram-chat %q", raw)
 				}
 				ids = append(ids, id)
 			}
@@ -420,7 +421,7 @@ func buildSources(names []string, telegramChats []string, telegramPoll int,
 			}
 			out = append(out, src)
 		default:
-			return nil, fmt.Errorf("unknown source %q (supported: stdin, telegram, meshwire)", n)
+			return nil, errs.Newf(errs.KindConfig, "serve.buildSources", "unknown source %q (supported: stdin, telegram, meshwire)", n)
 		}
 	}
 	return out, nil
@@ -444,7 +445,7 @@ func buildSourcesFromConfig(srcs []config.ServeSourceConfig) ([]input.Source, []
 		case "telegram":
 			token := os.Getenv(sc.TokenEnv)
 			if token == "" {
-				return nil, nil, fmt.Errorf("serve.sources[%d] (telegram): env var %s is empty or unset", i, sc.TokenEnv)
+				return nil, nil, errs.Newf(errs.KindConfig, "serve.buildSourcesFromConfig.telegram", "serve.sources[%d] (telegram): env var %s is empty or unset", i, sc.TokenEnv)
 			}
 			poll := sc.PollTimeoutSeconds
 			if poll == 0 {
@@ -460,14 +461,14 @@ func buildSourcesFromConfig(srcs []config.ServeSourceConfig) ([]input.Source, []
 			}
 			src, err := input.NewTelegramSource(cfg)
 			if err != nil {
-				return nil, nil, fmt.Errorf("serve.sources[%d] (telegram): %w", i, err)
+				return nil, nil, errs.Wrap(errs.KindConfig, "serve.buildSourcesFromConfig.telegram", err, "serve.sources[%d] (telegram)", i)
 			}
 			out = append(out, src)
 			labels = append(labels, "telegram")
 		case "meshwire":
 			token := os.Getenv(sc.TokenEnv)
 			if token == "" {
-				return nil, nil, fmt.Errorf("serve.sources[%d] (meshwire): env var %s is empty or unset", i, sc.TokenEnv)
+				return nil, nil, errs.Newf(errs.KindConfig, "serve.buildSourcesFromConfig.meshwire", "serve.sources[%d] (meshwire): env var %s is empty or unset", i, sc.TokenEnv)
 			}
 			poll := sc.PollTimeoutSeconds
 			if poll == 0 {
@@ -482,12 +483,12 @@ func buildSourcesFromConfig(srcs []config.ServeSourceConfig) ([]input.Source, []
 				APIBase:            sc.BaseURL,
 			})
 			if err != nil {
-				return nil, nil, fmt.Errorf("serve.sources[%d] (meshwire): %w", i, err)
+				return nil, nil, errs.Wrap(errs.KindConfig, "serve.buildSourcesFromConfig.meshwire", err, "serve.sources[%d] (meshwire)", i)
 			}
 			out = append(out, src)
 			labels = append(labels, "meshwire")
 		default:
-			return nil, nil, fmt.Errorf("serve.sources[%d]: unknown type %q", i, sc.Type)
+			return nil, nil, errs.Newf(errs.KindConfig, "serve.buildSourcesFromConfig", "serve.sources[%d]: unknown type %q", i, sc.Type)
 		}
 	}
 	return out, labels, nil
