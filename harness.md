@@ -81,3 +81,77 @@ Starlark is Python-like but has NO imports. Use only the built-ins above.
 - Be concise and helpful
 - Use tools proactively
 - Delegate complex multi-step tasks to specialized agents
+
+## Serve Mode (Phase 4 — Event Sources)
+
+`harness serve` runs the harness as a long-lived process that consumes turns
+from one or more **input Sources** instead of the interactive REPL. Each unique
+`SessionKey` (e.g. a Telegram chat ID) gets its own serialized worker goroutine
+so concurrent inbound messages from different chats run in parallel without
+interleaving turns on the same session.
+
+### Built-in Sources
+
+| Source     | SessionKey         | Replier | Required env / flags                                       |
+|------------|--------------------|---------|------------------------------------------------------------|
+| `stdin`    | `"stdin"`          | no      | none — drop-in REPL equivalent                             |
+| `telegram` | telegram `chat_id` | yes     | `TELEGRAM_BOT_TOKEN`, `--telegram-chat <id>` (repeatable)  |
+
+### CLI Flags
+
+```
+harness serve [flags]
+
+  --config, -c <path>       Path to harness.md / harness.yaml
+  --source <name>           Input source to enable (repeatable). Default: stdin.
+                            Supported: stdin, telegram
+  --telegram-chat <id>      Allowlisted Telegram chat ID (repeatable).
+                            REQUIRED when --source telegram is enabled.
+  --telegram-poll <secs>    Long-poll timeout in seconds (default 25, max 50).
+```
+
+### Examples
+
+```bash
+# REPL-equivalent (default)
+harness serve
+
+# Telegram bot, single chat allowlist
+export TELEGRAM_BOT_TOKEN=123456:abcdef
+harness serve --source telegram --telegram-chat 7729308746
+
+# Multi-source: REPL + Telegram in one process
+harness serve --source stdin --source telegram --telegram-chat 7729308746
+```
+
+### Configuration Block (planned)
+
+A declarative `serve:` block in `harness.md` frontmatter will eventually replace
+the repeated CLI flags. Shape under design:
+
+```yaml
+serve:
+  sources:
+    - type: stdin
+    - type: telegram
+      token_env: TELEGRAM_BOT_TOKEN
+      poll_timeout_seconds: 25
+      chat_allowlist:
+        - 7729308746
+```
+
+Until that lands, configure sources via the CLI flags above. Secrets (bot
+tokens) are always read from env vars — never embed them in `harness.md`.
+
+### Operational Notes
+
+- **Signals:** `serve` exits cleanly on SIGINT / SIGTERM. Each Source's
+  `Close()` is invoked during shutdown.
+- **Per-session ordering:** turns for the same `SessionKey` run serially; turns
+  for different keys run concurrently.
+- **Replier routing:** Sources that implement `input.Replier` (e.g. telegram)
+  receive `result.Response` back via `Reply()`. The stdin source prints to
+  stdout instead.
+- **Offset durability:** the telegram source currently tracks `update_id` in
+  memory only — on restart the bot resumes from Telegram's server-side cursor
+  (~24h window). Durable offset persistence is tracked as a Phase 3 follow-up.
