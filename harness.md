@@ -240,10 +240,20 @@ expecting a plain prefix-and-flags logger should adapt via `slog.NewLogLogger`.
 Tracing ships disabled by default — set `HARNESS_OTEL_ENDPOINT` (or
 `--otel-endpoint`) to turn it on. When enabled, every `slog` record
 auto-carries `trace_id` and `span_id` attrs via the `TraceContextHandler`
-middleware that wraps the standard handler. PR-A (this release) installs the
-tracer provider, OTLP/HTTP exporter, sampler, and slog↔trace bridge. Span
-instrumentation for `agent.Run`, `delegation.Execute`, and `tools.Call` ships
-in PR-B.
+middleware that wraps the standard handler. PR-A installs the tracer
+provider, OTLP/HTTP exporter, sampler, and slog↔trace bridge. PR-B adds span
+instrumentation for `agent.Run` (`agent.turn`), `delegation.Execute`
+(`delegation.execute`), and `tools.Call` (`tool.call`). PR-C adds the
+`source.pump` parent span emitted by `serve` for every inbound event,
+producing this hierarchy in Jaeger:
+
+```
+source.pump                       (per inbound event from a Source)
+└── agent.turn                    (one per Run() call)
+    ├── tool.call                 (per tool execution)
+    └── delegation.execute        (when sub-agents fire)
+        └── agent.turn            (child turn)
+```
 
 ```bash
 # Send traces to a local Jaeger / Tempo / Otel Collector endpoint.
@@ -276,5 +286,16 @@ defer span.End()
 // Install a custom TracerProvider (e.g., from your own SDK setup).
 harness.SetTracerProvider(myTP, myTP.Shutdown)
 ```
+
+**Local Jaeger (compose):** drop-in compose file at
+[`data/examples/otel-jaeger-compose.yml`](data/examples/otel-jaeger-compose.yml).
+
+```bash
+docker compose -f data/examples/otel-jaeger-compose.yml up -d
+export HARNESS_OTEL_ENDPOINT=http://localhost:4318
+./harness serve --serve-config harness.md
+# Open http://localhost:16686 and look for service `ai-harness`.
+```
+
 
 
