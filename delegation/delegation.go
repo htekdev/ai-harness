@@ -12,6 +12,11 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/htekdev/ai-harness/agent"
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
@@ -19,6 +24,9 @@ import (
 	"github.com/htekdev/ai-harness/scripting"
 	"github.com/htekdev/ai-harness/tools"
 )
+
+// tracerName is the OTel instrumentation library name shared across packages.
+const tracerName = "github.com/htekdev/ai-harness"
 
 // MaxDelegationDepth is the default maximum recursion depth for delegation.
 // Can be overridden via DelegatorConfig.MaxDepth.
@@ -147,9 +155,44 @@ func NewDelegator(cfg DelegatorConfig) *Delegator {
 }
 
 // Execute spins up a delegate agent with the specified tools and hooks, then runs the task.
-func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
-	// Check depth limit
+//
+// Phase 5.2 (PR-B): each call emits a `delegation.execute` OTel span with attrs
+//
+//	delegation.agent       = req.Agent (named agent or "")
+//	delegation.depth       = current depth at entry (parent perspective)
+//	delegation.model       = req.Model (after agent resolution)
+//	delegation.tools_count = len(req.Tools) (after agent resolution)
+//	delegation.task_len    = len(req.Task)
+//	delegation.tool_calls  = number of tool calls executed by the delegate (on success)
+//
+// The child `agent.turn` span nests automatically because childCtx is derived
+// from the span context. Failures record the error and set codes.Error.
+func (d *Delegator) Execute(ctx context.Context, req Request) (result *Result, err error) {
 	currentDepth := GetDepth(ctx)
+
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "delegation.execute",
+		trace.WithAttributes(
+			attribute.String("delegation.agent", req.Agent),
+			attribute.Int("delegation.depth", currentDepth),
+			attribute.Int("delegation.task_len", len(req.Task)),
+		),
+	)
+	defer func() {
+		span.SetAttributes(
+			attribute.String("delegation.model", req.Model),
+			attribute.Int("delegation.tools_count", len(req.Tools)),
+		)
+		if result != nil {
+			span.SetAttributes(attribute.Int("delegation.tool_calls", len(result.ToolCalls)))
+		}
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
+	// Check depth limit
 	if currentDepth >= d.maxDepth {
 		return nil, fmt.Errorf("delegation depth limit reached (%d/%d)", currentDepth, d.maxDepth)
 	}
@@ -321,7 +364,7 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
 		return nil, fmt.Errorf("delegate execution: %w", err)
 	}
 
-	result := &Result{
+	result = &Result{
 		Response:    turnResult.Response,
 		ToolCalls:   turnResult.ToolCalls,
 		ToolResults: turnResult.ToolResults,
