@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -177,7 +176,7 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 		Engine:             engine,
 		HookSystem:         hookSystem,
 		SystemPrompt:       cfg.Context.SystemPrompt,
-		Logger:             log.New(os.Stderr, "[delegate] ", log.LstdFlags),
+		Logger:             Logger().With("component", "delegate"),
 		MaxDepth:           cfg.Delegation.MaxDepth,
 		IterationsPerDepth: cfg.Delegation.IterationsPerDepth,
 		AgentResolver:      agentResolver,
@@ -243,7 +242,7 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 		Tools:   registry,
 		Hooks:   hookSystem,
 		Context: ctxMgr,
-		Logger:  log.New(os.Stderr, "[harness] ", log.LstdFlags),
+		Logger:  Logger().With("component", "harness"),
 	})
 
 	return h, nil

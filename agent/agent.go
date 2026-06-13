@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"reflect"
 	"sync"
 
@@ -27,7 +27,7 @@ type Agent struct {
 	tools             *tools.Registry
 	hooks             *hooks.System
 	context           *agentctx.Manager
-	logger            *log.Logger
+	logger            *slog.Logger
 	maxToolIterations int
 	composer          *artifact.Composer
 	turnNumber        int
@@ -39,7 +39,7 @@ type Options struct {
 	Tools   *tools.Registry
 	Hooks   *hooks.System
 	Context *agentctx.Manager
-	Logger  *log.Logger
+	Logger  *slog.Logger
 	// MaxToolIterations overrides the default cap on tool-call loops per turn.
 	// 0 means use DefaultMaxToolIterations.
 	MaxToolIterations int
@@ -56,7 +56,7 @@ func New(opts Options) *Agent {
 		opts.Tools = tools.NewRegistry()
 	}
 	if opts.Logger == nil {
-		opts.Logger = log.Default()
+		opts.Logger = slog.Default()
 	}
 	maxIter := opts.MaxToolIterations
 	if maxIter <= 0 {
@@ -156,7 +156,8 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 	// Re-evaluate artifact conditions against fresh turn state
 	if a.composer != nil {
 		if err := a.composer.EvaluateConditions(turnCtx); err != nil {
-			a.logger.Printf("WARN condition re-evaluation failed: %v", err)
+			a.logger.Warn("artifact condition re-evaluation failed",
+				"turn", a.turnNumber, "error", err)
 		}
 	}
 
@@ -283,7 +284,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (*TurnResult, error
 				}
 
 				// Execute the tool
-				a.logger.Printf("executing tool: %s (call_id: %s)", c.Name, c.ID)
+				a.logger.Debug("executing tool", "tool", c.Name, "call_id", c.ID)
 				toolResult := a.tools.Execute(turnCtx, c)
 
 				// Fire tool.post hook

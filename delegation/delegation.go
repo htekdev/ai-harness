@@ -6,8 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -78,7 +77,7 @@ type Delegator struct {
 	engine             *scripting.Engine
 	hookSystem         *hooks.System
 	systemPrompt       string
-	logger             *log.Logger
+	logger             *slog.Logger
 	maxDepth           int
 	iterationsPerDepth []int
 	agentResolver      AgentResolver
@@ -106,7 +105,7 @@ type DelegatorConfig struct {
 	Engine             *scripting.Engine
 	HookSystem         *hooks.System
 	SystemPrompt       string
-	Logger             *log.Logger
+	Logger             *slog.Logger
 	MaxDepth           int
 	IterationsPerDepth []int
 	AgentResolver      AgentResolver
@@ -117,7 +116,7 @@ type DelegatorConfig struct {
 // NewDelegator creates a new Delegator.
 func NewDelegator(cfg DelegatorConfig) *Delegator {
 	if cfg.Logger == nil {
-		cfg.Logger = log.New(os.Stderr, "[delegate] ", log.LstdFlags)
+		cfg.Logger = slog.Default().With("component", "delegate")
 	}
 	if cfg.Engine == nil {
 		cfg.Engine = scripting.NewEngine()
@@ -179,7 +178,8 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (*Result, error) {
 	if req.Model != "" && d.clientFactory != nil {
 		modelClient, err := d.clientFactory(req.Model)
 		if err != nil {
-			d.logger.Printf("model %q not found in registry, using default", req.Model)
+			d.logger.Warn("model not found in registry, using default",
+				"requested_model", req.Model)
 		} else {
 			client = modelClient
 		}

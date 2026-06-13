@@ -191,3 +191,47 @@ by `token_env` — never embed them in `harness.md`.
   across restarts using an atomic write-then-rename. Without a store, the
   offset lives only in memory and the bot resumes from Telegram's server-side
   cursor (~24h window) after a crash — fine for dev, not for production.
+
+## Structured Logging (Phase 5.1)
+
+Every internal logger in `harness` flows through Go's standard `log/slog`
+package. One knob controls the entire runtime — `agent`, `delegation`,
+`evals`, and `serve` all share the same handler:
+
+```bash
+# JSON for production aggregators
+harness --log-format json --log-level info serve --source telegram --telegram-chat 12345
+
+# Verbose text for local debugging
+harness --log-format text --log-level debug run
+```
+
+**Flags** (global, accepted before any subcommand):
+
+| Flag | Values | Default | Env var |
+|------|--------|---------|---------|
+| `--log-level` | `debug`, `info`, `warn`, `error` | `info` | `HARNESS_LOG_LEVEL` |
+| `--log-format` | `text`, `json` | `text` | `HARNESS_LOG_FORMAT` |
+
+**Field conventions:**
+
+- `component` — always present (`harness`, `delegate`, `eval-delegate`, `eval`, `evals`)
+- `source` — set by `serve` source pumps (`stdin`, `telegram`, `meshwire`)
+- `session_key` — chat/peer identifier for multi-session routing
+- `tool`, `call_id` — emitted at debug level for every tool dispatch
+
+**Embedding in Go:**
+
+```go
+import "github.com/htekdev/ai-harness/harness"
+
+// Read the active logger (lazy, env-derived if SetLogger hasn't been called).
+harness.Logger().Info("ready", "component", "my-extension")
+
+// Install a custom slog.Logger globally.
+harness.SetLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+```
+
+Stdlib `log.Logger` is no longer used internally; any external integration
+expecting a plain prefix-and-flags logger should adapt via `slog.NewLogLogger`.
+

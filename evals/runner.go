@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -55,7 +55,7 @@ func DefaultConfig() RunnerConfig {
 // Runner executes eval cases against real LLM APIs.
 type Runner struct {
 	Config  RunnerConfig
-	logger  *log.Logger
+	logger  *slog.Logger
 	cost    CostTracker
 	aborted atomic.Bool
 }
@@ -83,7 +83,7 @@ func NewRunner(cfg RunnerConfig) *Runner {
 
 	return &Runner{
 		Config: cfg,
-		logger: log.New(os.Stderr, "[evals] ", log.LstdFlags),
+		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)).With("component", "evals"),
 	}
 }
 
@@ -151,8 +151,9 @@ func (r *Runner) RunCases(ctx context.Context, cases []*EvalCase) (*SuiteResult,
 			// Check budget
 			if r.cost.EstimatedUSD() >= r.Config.BudgetCapUSD {
 				r.aborted.Store(true)
-				r.logger.Printf("BUDGET CAP REACHED: $%.4f >= $%.2f — aborting remaining evals",
-					r.cost.EstimatedUSD(), r.Config.BudgetCapUSD)
+				r.logger.Error("budget cap reached, aborting remaining evals",
+					"spent_usd", r.cost.EstimatedUSD(),
+					"cap_usd", r.Config.BudgetCapUSD)
 			}
 		}(i, c)
 	}
@@ -187,7 +188,8 @@ func (r *Runner) runOneWithRetry(ctx context.Context, c *EvalCase, apiKey string
 
 	// Retry once (safety net for API hiccups — NOT for prompting harder)
 	for retry := 0; retry < r.Config.RetryOnFail; retry++ {
-		r.logger.Printf("Retrying eval %q (attempt %d/%d)", c.Name, retry+2, r.Config.RetryOnFail+1)
+		r.logger.Info("retrying eval",
+			"case", c.Name, "attempt", retry+2, "max_attempts", r.Config.RetryOnFail+1)
 		result = r.runOne(ctx, c, apiKey)
 		result.Retries = retry + 1
 		if result.Passed {
@@ -387,7 +389,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 			Engine:             engine,
 			HookSystem:         hookSystem,
 			SystemPrompt:       c.Setup.SystemPrompt,
-			Logger:             log.New(os.Stderr, "[eval-delegate] ", log.LstdFlags),
+			Logger:             slog.Default().With("component", "eval-delegate"),
 			MaxDepth:           maxDepth,
 			IterationsPerDepth: itersPerDepth,
 		})
@@ -425,7 +427,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 		Tools:             registry,
 		Hooks:             hookSystem,
 		Context:           ctxMgr,
-		Logger:            log.New(os.Stderr, fmt.Sprintf("[eval:%s] ", c.Name), log.LstdFlags),
+		Logger:            slog.Default().With("component", "eval", "case", c.Name),
 		MaxToolIterations: 10,
 	})
 
