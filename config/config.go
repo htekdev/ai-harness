@@ -20,6 +20,7 @@ type Config struct {
 	Hooks      []HookConfig       `yaml:"hooks" json:"hooks"`
 	Delegation DelegationConfig   `yaml:"delegation,omitempty" json:"delegation,omitempty"`
 	Meta       *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
+	Serve      *ServeConfig       `yaml:"serve,omitempty" json:"serve,omitempty"`
 }
 
 // MetaBuiltinConfig configures the meta.* Starlark built-ins.
@@ -178,6 +179,10 @@ func (c *Config) Validate() error {
 		if !hooks.IsValidEvent(hookCfg.Event) {
 			issues = append(issues, fmt.Sprintf("hooks[%d].event %q is invalid", i, hookCfg.Event))
 		}
+	}
+
+	if err := c.Serve.Validate(); err != nil {
+		issues = append(issues, err.Error())
 	}
 
 	if len(issues) > 0 {

@@ -140,10 +140,11 @@ harness serve --source meshwire \
   --meshwire-sender peer-reviewer
 ```
 
-### Configuration Block (planned)
+### Configuration Block
 
-A declarative `serve:` block in `harness.md` frontmatter will eventually replace
-the repeated CLI flags. Shape under design:
+A declarative `serve:` block in `harness.md` frontmatter replaces the repeated
+CLI flags. When `serve.sources` is present and no `--source` flag is passed,
+`harness serve` configures itself from the block.
 
 ```yaml
 serve:
@@ -152,12 +153,28 @@ serve:
     - type: telegram
       token_env: TELEGRAM_BOT_TOKEN
       poll_timeout_seconds: 25
+      offset_path: /var/lib/harness/telegram.offset.json
       chat_allowlist:
         - 7729308746
 ```
 
-Until that lands, configure sources via the CLI flags above. Secrets (bot
-tokens) are always read from env vars — never embed them in `harness.md`.
+**Precedence:** `--source` CLI flags override the `serve:` block entirely. If
+neither is present, the binary falls back to `stdin` (drop-in for `harness run`).
+
+**Per-source fields:**
+
+- `stdin` — no extra fields.
+- `telegram`
+  - `token_env` *(required)* — env var holding the Bot API token.
+  - `chat_allowlist` *(required)* — list of allowed chat IDs.
+  - `poll_timeout_seconds` *(optional, 0–50, default 25)*.
+  - `offset_path` *(optional)* — file path for `FileOffsetStore` durability.
+- `meshwire` *(schema-only — implementation lands with PR #75)*
+  - `token_env`, `mesh_id`, `agent_id`, `sender_allowlist` are required.
+  - `poll_timeout_seconds` *(0–60, default 30)*, `base_url` *(default `https://meshwire.io`)*.
+
+Secrets (bot tokens, MeshWire tokens) are **always** read from env vars named
+by `token_env` — never embed them in `harness.md`.
 
 ### Operational Notes
 
