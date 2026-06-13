@@ -96,6 +96,7 @@ interleaving turns on the same session.
 |------------|--------------------|---------|------------------------------------------------------------|
 | `stdin`    | `"stdin"`          | no      | none — drop-in REPL equivalent                             |
 | `telegram` | telegram `chat_id` | yes     | `TELEGRAM_BOT_TOKEN`, `--telegram-chat <id>` (repeatable)  |
+| `meshwire` | peer `agent_id`    | yes     | `MESHWIRE_TOKEN`, `--meshwire-mesh`, `--meshwire-agent`, `--meshwire-sender` (repeatable) |
 
 ### CLI Flags
 
@@ -104,10 +105,17 @@ harness serve [flags]
 
   --config, -c <path>       Path to harness.md / harness.yaml
   --source <name>           Input source to enable (repeatable). Default: stdin.
-                            Supported: stdin, telegram
+                            Supported: stdin, telegram, meshwire
   --telegram-chat <id>      Allowlisted Telegram chat ID (repeatable).
                             REQUIRED when --source telegram is enabled.
   --telegram-poll <secs>    Long-poll timeout in seconds (default 25, max 50).
+  --meshwire-mesh <id>      MeshWire mesh ID. REQUIRED when --source meshwire.
+  --meshwire-agent <id>     This harness's agent_id in the mesh.
+                            REQUIRED when --source meshwire.
+  --meshwire-sender <id>    Allowlisted peer agent_id (repeatable).
+                            REQUIRED when --source meshwire (no wildcard in v1).
+  --meshwire-poll <secs>    MeshWire long-poll timeout in seconds (default 30, max 60).
+  --meshwire-base <url>     Override MeshWire API base URL (default https://meshwire.io).
 ```
 
 ### Examples
@@ -122,6 +130,14 @@ harness serve --source telegram --telegram-chat 7729308746
 
 # Multi-source: REPL + Telegram in one process
 harness serve --source stdin --source telegram --telegram-chat 7729308746
+
+# MeshWire peer-agent integration
+export MESHWIRE_TOKEN=mw_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+harness serve --source meshwire \
+  --meshwire-mesh my-mesh \
+  --meshwire-agent ai-harness \
+  --meshwire-sender peer-coder \
+  --meshwire-sender peer-reviewer
 ```
 
 ### Configuration Block (planned)

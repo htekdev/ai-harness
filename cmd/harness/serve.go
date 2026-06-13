@@ -32,6 +32,12 @@ import (
 //	--source telegram        Add the Telegram source (requires TELEGRAM_BOT_TOKEN env)
 //	--telegram-chat <id>     Repeatable allowlist of chat IDs (REQUIRED for telegram source)
 //	--telegram-poll <secs>   Long-poll timeout (default 25, max 50)
+//	--source meshwire        Add the MeshWire source (requires MESHWIRE_TOKEN env)
+//	--meshwire-mesh <id>     MeshWire mesh ID (REQUIRED for meshwire source)
+//	--meshwire-agent <id>    This harness's agent_id in the mesh (REQUIRED for meshwire source)
+//	--meshwire-sender <id>   Repeatable allowlist of peer agent IDs (REQUIRED for meshwire source)
+//	--meshwire-poll <secs>   MeshWire long-poll timeout (default 30, max 60)
+//	--meshwire-base <url>    Override MeshWire API base URL (default https://meshwire.io)
 //
 // If no --source flag is given, defaults to stdin (drop-in for harness run).
 func cmdServe(args []string) error {
@@ -39,10 +45,16 @@ func cmdServe(args []string) error {
 	configPath := fs.String("config", "", "Path to harness config file")
 	fs.StringVar(configPath, "c", "", "Path to harness config file (shorthand)")
 	var sources multiFlag
-	fs.Var(&sources, "source", "Input source to enable (stdin, telegram). Repeatable.")
+	fs.Var(&sources, "source", "Input source to enable (stdin, telegram, meshwire). Repeatable.")
 	var telegramChats multiFlag
 	fs.Var(&telegramChats, "telegram-chat", "Allowlisted Telegram chat ID (repeatable). Required when --source telegram.")
 	telegramPoll := fs.Int("telegram-poll", 25, "Telegram long-poll timeout in seconds (max 50)")
+	meshwireMesh := fs.String("meshwire-mesh", "", "MeshWire mesh ID. Required when --source meshwire.")
+	meshwireAgent := fs.String("meshwire-agent", "", "This harness's agent_id in the mesh. Required when --source meshwire.")
+	var meshwireSenders multiFlag
+	fs.Var(&meshwireSenders, "meshwire-sender", "Allowlisted peer agent_id (repeatable). Required when --source meshwire.")
+	meshwirePoll := fs.Int("meshwire-poll", 30, "MeshWire long-poll timeout in seconds (max 60)")
+	meshwireBase := fs.String("meshwire-base", "", "Override MeshWire API base URL (default https://meshwire.io)")
 	fs.Parse(args)
 
 	if len(sources) == 0 {
@@ -64,7 +76,8 @@ func cmdServe(args []string) error {
 	defer h.EndSession(ctx)
 
 	// Construct sources.
-	srcs, err := buildSources(sources, telegramChats, *telegramPoll)
+	srcs, err := buildSources(sources, telegramChats, *telegramPoll,
+		*meshwireMesh, *meshwireAgent, meshwireSenders, *meshwirePoll, *meshwireBase)
 	if err != nil {
 		return err
 	}
@@ -214,12 +227,40 @@ func handleResult(ctx context.Context, j serveJob, result *agent.TurnResult, err
 }
 
 // buildSources constructs the requested input sources from CLI flags.
-func buildSources(names []string, telegramChats []string, telegramPoll int) ([]input.Source, error) {
+func buildSources(names []string, telegramChats []string, telegramPoll int,
+	meshwireMesh, meshwireAgent string, meshwireSenders []string, meshwirePoll int, meshwireBase string,
+) ([]input.Source, error) {
 	out := make([]input.Source, 0, len(names))
 	for _, n := range names {
 		switch strings.ToLower(strings.TrimSpace(n)) {
 		case "stdin":
 			out = append(out, input.NewStdinSource(os.Stdin, func() { fmt.Print("\n> ") }))
+		case "meshwire":
+			token := os.Getenv("MESHWIRE_TOKEN")
+			if token == "" {
+				return nil, fmt.Errorf("meshwire source requires MESHWIRE_TOKEN env var")
+			}
+			if meshwireMesh == "" {
+				return nil, fmt.Errorf("meshwire source requires --meshwire-mesh <id>")
+			}
+			if meshwireAgent == "" {
+				return nil, fmt.Errorf("meshwire source requires --meshwire-agent <id>")
+			}
+			if len(meshwireSenders) == 0 {
+				return nil, fmt.Errorf("meshwire source requires at least one --meshwire-sender <id> (no wildcard in v1)")
+			}
+			src, err := input.NewMeshWireSource(input.MeshWireConfig{
+				Token:              token,
+				MeshID:             meshwireMesh,
+				AgentID:            meshwireAgent,
+				SenderAllowlist:    meshwireSenders,
+				PollTimeoutSeconds: meshwirePoll,
+				APIBase:            meshwireBase,
+			})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, src)
 		case "telegram":
 			token := os.Getenv("TELEGRAM_BOT_TOKEN")
 			if token == "" {
@@ -243,7 +284,7 @@ func buildSources(names []string, telegramChats []string, telegramPoll int) ([]i
 			}
 			out = append(out, src)
 		default:
-			return nil, fmt.Errorf("unknown source %q (supported: stdin, telegram)", n)
+			return nil, fmt.Errorf("unknown source %q (supported: stdin, telegram, meshwire)", n)
 		}
 	}
 	return out, nil
