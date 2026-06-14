@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/htekdev/ai-harness/agent"
 	"github.com/htekdev/ai-harness/harness"
 )
 
@@ -15,6 +16,7 @@ func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	configPath := fs.String("config", "", "Path to harness config file")
 	fs.StringVar(configPath, "c", "", "Path to harness config file (shorthand)")
+	stream := fs.Bool("stream", false, "Stream model tokens to the terminal as they arrive (Phase 5.4)")
 	fs.Parse(args)
 
 	cfgPath := resolveConfig(*configPath)
@@ -32,6 +34,9 @@ func cmdRun(args []string) error {
 
 	fmt.Println("🤖 AI Harness — Interactive Mode")
 	fmt.Printf("   config: %s\n", cfgPath)
+	if *stream {
+		fmt.Println("   streaming: ON (tokens appear live; usage counters not reported)")
+	}
 	fmt.Println("   Type 'quit' to exit, '/tools' to list tools, '/hooks' to list hooks")
 	fmt.Println("---")
 
@@ -66,7 +71,12 @@ func cmdRun(args []string) error {
 			continue
 		}
 
-		result, err := h.Run(ctx, input)
+		var result *agentTurnResult
+		if *stream {
+			result, err = runStreaming(ctx, h, input)
+		} else {
+			result, err = runBatched(ctx, h, input)
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			continue
@@ -79,12 +89,39 @@ func cmdRun(args []string) error {
 			}
 		}
 
-		fmt.Printf("\n%s\n", result.Response)
-		fmt.Printf("\n[tokens: %d prompt + %d completion = %d total]\n",
-			result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
+		if !*stream {
+			// In batch mode the response wasn't printed yet; print it now.
+			fmt.Printf("\n%s\n", result.Response)
+		} else {
+			// In stream mode tokens already printed inline; just terminate the line.
+			fmt.Println()
+		}
+
+		if !*stream {
+			fmt.Printf("\n[tokens: %d prompt + %d completion = %d total]\n",
+				result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
+		}
 	}
 
 	return nil
+}
+
+// agentTurnResult is a thin alias kept local to the CLI to avoid importing
+// the agent package's public symbol name into a function signature.
+type agentTurnResult = agent.TurnResult
+
+func runBatched(ctx context.Context, h *harness.Harness, input string) (*agentTurnResult, error) {
+	return h.Run(ctx, input)
+}
+
+func runStreaming(ctx context.Context, h *harness.Harness, input string) (*agentTurnResult, error) {
+	// Print tokens as they arrive. We rely on bufio-style flush of os.Stdout
+	// (line-buffered on terminals, otherwise block-buffered) — for an
+	// interactive TTY this is good enough. If users redirect stdout, they
+	// will see the same final text just with less granular flushing.
+	return h.RunStream(ctx, input, func(delta string) {
+		fmt.Print(delta)
+	})
 }
 
 func printToolList(h *harness.Harness) {
