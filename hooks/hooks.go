@@ -22,8 +22,8 @@ const (
 	EventToolPost       Event = "tool.post"
 	EventCompletionPre  Event = "completion.pre"
 	EventCompletionPost Event = "completion.post"
-	EventDelegatePre  Event = "delegation.pre"
-	EventDelegatePost Event = "delegation.post"
+	EventDelegatePre    Event = "delegation.pre"
+	EventDelegatePost   Event = "delegation.post"
 	// EventDelegatePostVerify fires after EventDelegatePost when a
 	// delegation specifies a `verify:` block (or any registered hook
 	// listens on this event). Hooks may inspect the delegation Result
