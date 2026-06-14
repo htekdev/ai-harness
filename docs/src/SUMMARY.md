@@ -13,6 +13,7 @@
 - [Hooks](./concepts/hooks.md)
 - [Delegation](./concepts/delegation.md)
 - [Governance & Policy](./concepts/governance.md)
+- [Verification](./concepts/verification.md)
 
 # Guides
 
