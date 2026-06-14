@@ -188,6 +188,7 @@ func NewClient(config ClientConfig) *Client {
 // It retries on transient errors with exponential backoff.
 func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 	req = c.prepareRequest(req)
+	req.Messages = SanitizeMessages(req.Messages)
 
 	if err := ValidateMessages(req.Messages); err != nil {
 		return nil, err
@@ -217,6 +218,7 @@ func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 func (c *Client) CompleteStream(ctx context.Context, req Request) (<-chan StreamChunk, error) {
 	req = c.prepareRequest(req)
 	req.Stream = true
+	req.Messages = SanitizeMessages(req.Messages)
 
 	if err := ValidateMessages(req.Messages); err != nil {
 		return nil, err
