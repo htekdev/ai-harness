@@ -23,6 +23,23 @@ type Config struct {
 	Delegation  DelegationConfig   `yaml:"delegation,omitempty" json:"delegation,omitempty"`
 	Meta        *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
 	Serve       *ServeConfig       `yaml:"serve,omitempty" json:"serve,omitempty"`
+	Network     *NetworkConfig     `yaml:"network,omitempty" json:"network,omitempty"`
+}
+
+// NetworkConfig configures the harness network sandbox enforced by the
+// http.* Starlark built-ins (Phase 5.5 — Production Hardening).
+//
+// When AllowedDomains is non-empty, the sandbox switches to default-deny:
+// only listed domains (and their sub-domains) may be reached. Each entry
+// is a domain name; the special entry "*" disables host filtering while
+// still rejecting non-http(s) schemes. See scripting.NewNetworkSandbox
+// for the full matching rules.
+//
+// When this block is omitted (or AllowedDomains is empty), behaviour is
+// unchanged from pre-5.5: scripts may reach any host. This preserves
+// back-compat for every existing config.
+type NetworkConfig struct {
+	AllowedDomains []string `yaml:"allowed_domains,omitempty" json:"allowed_domains,omitempty"`
 }
 
 // MetaBuiltinConfig configures the meta.* Starlark built-ins.

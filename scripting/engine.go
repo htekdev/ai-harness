@@ -41,6 +41,12 @@ type Engine struct {
 	cache     map[string]any
 	metricsMu sync.RWMutex
 	metrics   map[string]int64
+
+	// sandboxMu guards sandbox; it may be replaced at runtime (e.g. by a
+	// future config hot-reload). The http.* built-ins read it on every
+	// request so updates take effect for subsequent calls.
+	sandboxMu sync.RWMutex
+	sandbox   *NetworkSandbox
 }
 
 // NewEngine creates a new scripting engine with built-in modules.
@@ -89,8 +95,8 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 	})
 
 	httpMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"get":  starlark.NewBuiltin("http.get", builtinHTTPGet),
-		"post": starlark.NewBuiltin("http.post", builtinHTTPPost),
+		"get":  starlark.NewBuiltin("http.get", e.builtinHTTPGet),
+		"post": starlark.NewBuiltin("http.post", e.builtinHTTPPost),
 	})
 
 	reMod := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
@@ -513,17 +519,34 @@ func builtinMathCeil(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tupl
 	return starlark.MakeInt64(int64(math.Ceil(float64(x)))), nil
 }
 
-func builtinHTTPGet(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+// SetNetworkSandbox attaches (or replaces) the network sandbox enforced
+// by the http.* Starlark built-ins. Passing nil — or a sandbox with no
+// allowed domains — disables sandboxing (back-compat default). Safe for
+// concurrent use; updates take effect for subsequent http calls.
+func (e *Engine) SetNetworkSandbox(s *NetworkSandbox) {
+	e.sandboxMu.Lock()
+	e.sandbox = s
+	e.sandboxMu.Unlock()
+}
+
+// NetworkSandbox returns the currently attached sandbox, or nil.
+func (e *Engine) NetworkSandbox() *NetworkSandbox {
+	e.sandboxMu.RLock()
+	defer e.sandboxMu.RUnlock()
+	return e.sandbox
+}
+
+func (e *Engine) builtinHTTPGet(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var rawURL string
 	var headersVal starlark.Value = starlark.None
 	var timeoutSeconds int = 30
 	if err := starlark.UnpackArgs("http.get", args, kwargs, "url", &rawURL, "headers?", &headersVal, "timeout_seconds?", &timeoutSeconds); err != nil {
 		return nil, err
 	}
-	return doHTTPRequest("GET", rawURL, "", headersVal, timeoutSeconds)
+	return e.doHTTPRequest("GET", rawURL, "", headersVal, timeoutSeconds)
 }
 
-func builtinHTTPPost(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (e *Engine) builtinHTTPPost(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var rawURL string
 	var body string
 	var headersVal starlark.Value = starlark.None
@@ -531,10 +554,16 @@ func builtinHTTPPost(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tupl
 	if err := starlark.UnpackArgs("http.post", args, kwargs, "url", &rawURL, "body?", &body, "headers?", &headersVal, "timeout_seconds?", &timeoutSeconds); err != nil {
 		return nil, err
 	}
-	return doHTTPRequest("POST", rawURL, body, headersVal, timeoutSeconds)
+	return e.doHTTPRequest("POST", rawURL, body, headersVal, timeoutSeconds)
 }
 
-func doHTTPRequest(method, rawURL, body string, headersVal starlark.Value, timeoutSeconds int) (starlark.Value, error) {
+func (e *Engine) doHTTPRequest(method, rawURL, body string, headersVal starlark.Value, timeoutSeconds int) (starlark.Value, error) {
+	if sb := e.NetworkSandbox(); sb != nil {
+		if err := sb.Allow(rawURL); err != nil {
+			return nil, fmt.Errorf("http.%s: %w", strings.ToLower(method), err)
+		}
+	}
+
 	headers, err := starlarkValueToStringMap(headersVal)
 	if err != nil {
 		return nil, fmt.Errorf("http.%s: %w", strings.ToLower(method), err)
