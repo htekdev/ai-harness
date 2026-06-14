@@ -6,6 +6,7 @@
 > Every prompt ships with its governance. Every agent behavior is reproducible, reviewable, and testable.
 
 [![CI](https://github.com/htekdev/ai-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/htekdev/ai-harness/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/📚_Docs-htekdev.github.io/ai--harness-blue)](https://htekdev.github.io/ai-harness/)
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Release](https://img.shields.io/github/v/release/htekdev/ai-harness?include_prereleases)](https://github.com/htekdev/ai-harness/releases)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
