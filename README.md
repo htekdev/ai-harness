@@ -208,6 +208,21 @@ go get github.com/htekdev/ai-harness
 
 **Requirements:** Go 1.25+, an API key for any OpenAI-compatible endpoint (GitHub Copilot, OpenAI, etc.)
 
+### Production deployment
+
+Reference recipes for running `harness serve` as a long-lived service live
+in [`deploy/`](deploy/):
+
+- **systemd** — hardened unit file with seccomp, capability stripping, and
+  config reload. See [`deploy/systemd/`](deploy/systemd/).
+- **Docker** — distroless multi-stage Dockerfile (~10 MB), reference
+  `docker-compose.yml` with read-only rootfs and a `harness validate`
+  healthcheck. See [`deploy/docker/`](deploy/docker/).
+- **One-shot CLI** — `harness deploy` for CI/CD jobs and scripts.
+
+Start at [`deploy/README.md`](deploy/README.md) for the production
+checklist (sizing, sandboxing, OTel, persistence, restart policies).
+
 ## Quick Start
 
 ### 1. Scaffold a new project

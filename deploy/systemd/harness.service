@@ -1,0 +1,64 @@
+[Unit]
+Description=AI Harness — declarative agent runtime
+Documentation=https://github.com/htekdev/ai-harness
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=harness
+Group=harness
+
+# Working directory must contain harness.md and (optionally) a .harness/ folder.
+WorkingDirectory=/var/lib/harness
+ExecStart=/usr/local/bin/harness serve --config /var/lib/harness/harness.md
+
+# Reload on SIGHUP if your harness.md/.harness/ change. Falls back to restart
+# when reload is not implemented for the active source set.
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Drain in-flight turns; serve traps SIGTERM and shuts sources down cleanly.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5s
+
+# Provider creds and OTel config live in /etc/harness/harness.env
+# (chmod 0600, owned by root:harness). NEVER commit this file.
+EnvironmentFile=-/etc/harness/harness.env
+
+# --- Hardening (Phase 5.10) -------------------------------------------------
+# All of the following are safe with a static Go binary and a writable
+# WorkingDirectory; loosen only if your tools need wider FS access.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Allow harness to write its own state (sessions, persistence DB, logs).
+ReadWritePaths=/var/lib/harness /var/log/harness
+
+# Resource ceilings — tune per environment.
+LimitNOFILE=65536
+TasksMax=512
+
+# stdout/stderr → journald (use `journalctl -u harness -f` to tail).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
