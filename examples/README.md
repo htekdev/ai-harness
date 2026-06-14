@@ -2,6 +2,11 @@
 
 This directory contains **production-ready example artifacts** to help you learn how to build AI agents with Harness as Code.
 
+> **🚀 Start here:** [`governed-agent/`](./governed-agent/) is the flagship
+> reference profile. It composes every Phase 5 governance primitive (tool
+> policy, retry, network sandbox, command guard, OTel, self-augment) into a
+> single `git clone → cd → harness run` example.
+
 ## Quick Start
 
 1. **Initialize a new harness:**
