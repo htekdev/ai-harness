@@ -94,8 +94,9 @@ the operation is "spawn a whole new agent."
 > that fires *between* the child's response and `delegation.post`. It runs
 > verification hooks declared on the delegate's artifacts, returns
 > `errs.KindVerificationFailed` on a `block`, and re-prompts up to a
-> configured retry budget. The page you are reading now describes the
-> contract that primitive will plug into.
+> configured retry budget. See **[Verification](./verification.md)** for
+> the full contract; the page you are reading now describes the lifecycle
+> verification slots into.
 
 [i103]: https://github.com/htekdev/ai-harness/issues/103
 [i104]: https://github.com/htekdev/ai-harness/issues/104
