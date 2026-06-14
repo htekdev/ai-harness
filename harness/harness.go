@@ -94,6 +94,9 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 
 	engine := scripting.NewEngine()
+	if cfg.Network != nil && len(cfg.Network.AllowedDomains) > 0 {
+		engine.SetNetworkSandbox(scripting.NewNetworkSandbox(cfg.Network.AllowedDomains))
+	}
 	registry := tools.NewRegistry()
 
 	for _, toolCfg := range cfg.Tools {
