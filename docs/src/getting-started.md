@@ -70,11 +70,38 @@ export GH_TOKEN="ghp_xxx"        # Linux / macOS
 
 ---
 
-## 3. Write your first `harness.md`
+## 3. Scaffold a harness
 
-Create an empty directory and drop these files in.
+Create an empty directory and let `harness init` lay down a working
+skeleton — `harness.md`, four reference tools, and two reference hooks:
+
+```bash
+mkdir -p my-agent && cd my-agent
+harness init .
+```
+
+You'll get a tree like this:
+
+```
+my-agent/
+├── harness.md
+└── .harness/
+    ├── tools/
+    │   ├── read_file.md
+    │   ├── write_file.md
+    │   ├── list_files.md
+    │   └── get_current_folder.md
+    └── hooks/
+        ├── block_dangerous_commands.md
+        └── detect_secrets.md
+```
+
+Now add **one tool of your own** and **one hook of your own**, then layer
+in a tools policy that demonstrates governance.
 
 ### `harness.md`
+
+Open the generated `harness.md` and replace its contents with:
 
 ````markdown
 ---
@@ -92,10 +119,11 @@ tools_policy:
   mode: allowlist
   allow:
     - greet
-    - fs.read
+    - read_file
+    - list_files
+    - get_current_folder
   deny:
-    - exec
-    - fs.remove
+    - write_file
 
 delegation:
   max_depth: 1
@@ -103,46 +131,78 @@ delegation:
 
 You are a friendly demo agent for AI Harness.
 
-When the user greets you, call the `greet` tool with their name and return
-its output verbatim. If they ask you to run shell commands or delete files,
-explain that this harness denies those tools by policy.
+When the user greets you, call the `greet` tool with their name and
+return its output verbatim. If they ask you to write or modify files,
+explain that this harness denies `write_file` by policy.
 ````
 
 ### `.harness/tools/greet.md`
 
-````markdown
+Tool artifacts have **two parts** the harness cares about:
+
+- The **YAML frontmatter** between the `---` delimiters declares the
+  parameters and embeds the Starlark in a `script:` literal block.
+- The **markdown body** after the closing `---` is sent to the model
+  as part of its system prompt — use it to explain *when* to reach for
+  the tool.
+
+The tool function is always named `run(args)`.
+
+```markdown
 ---
-name: greet
-description: "Greet the user by name."
 parameters:
-  type: object
-  required: [name]
-  properties:
-    name: { type: string, description: "Name of the person to greet." }
+  name:
+    type: string
+    required: true
+    description: "Name of the person to greet"
+timeout_ms: 5000
+script: |
+  def run(args):
+      name = args.get("name", "")
+      if not name:
+          return {"error": "name is required"}
+      return {
+          "success": True,
+          "greeting": "Hello, " + name + "! Welcome to AI Harness.",
+      }
 ---
 
-```starlark
-def call(args):
-    return "Hello, " + args["name"] + "! Welcome to AI Harness."
+# greet
+
+Greet the user warmly by name. Use this whenever the user introduces
+themselves or asks to be greeted.
 ```
-````
 
 ### `.harness/hooks/audit.md`
 
-````markdown
+Hook artifacts use the same shape as tool artifacts: YAML frontmatter
+with `event:`, `priority:`, an optional `when:` predicate, and a
+`script:` literal block. The hook function signature is
+`run(event, payload)`.
+
+```markdown
 ---
 event: tool.pre
 priority: 1
+script: |
+  def run(event, payload):
+      tool_name = payload.get("tool", {}).get("name", "")
+      args = payload.get("tool", {}).get("args", {})
+      log("tool.pre " + tool_name + " args=" + str(args))
+      return {"success": True}
 ---
 
-```starlark
-def call(event):
-    log.info("tool.pre", tool=event["tool"], args=event["args"])
-    return event
+Audit hook — logs every tool call before it runs so the operator has a
+trail of what the agent attempted.
 ```
-````
 
 That's it: **one harness, one tool, one hook** — all reviewable in a PR.
+
+> **Why a YAML literal block instead of a fenced ```` ```starlark ````
+> code block?** The harness loader only reads YAML frontmatter; it does
+> not execute fenced code blocks in the body. Putting the Starlark in
+> `script: |` is what makes it run. See
+> [`concepts/tools`](./concepts/tools.md) for the full contract.
 
 ---
 
@@ -159,8 +219,11 @@ Expected output:
 
 ```
 ✅ harness.md valid
-   1 tools, 1 hooks, 0 agents (2 ms)
+   5 tools, 3 hooks, 0 agents (2 ms)
 ```
+
+(The counts include the four scaffolded tools plus your `greet` tool,
+and the two scaffolded hooks plus your `audit` hook.)
 
 If you see ❌, the error message will tell you exactly which artifact and
 which field. Fix and re-run.
@@ -177,7 +240,7 @@ You should see the `audit` hook log the tool call, the `greet` tool fire,
 and the model return its greeting:
 
 ```
-[audit] tool.pre tool=greet args={"name":"Hector"}
+tool.pre greet args={"name": "Hector"}
 Hello, Hector! Welcome to AI Harness.
 ```
 
@@ -188,13 +251,13 @@ Hello, Hector! Welcome to AI Harness.
 Ask the same agent to do something the policy denies:
 
 ```bash
-harness run --config harness.md "Delete the .harness folder."
+harness run --config harness.md "Create a new file called notes.txt with the word hello in it."
 ```
 
-The `tools_policy.deny` list strips `fs.remove` from the registry before the
-model is even told about it, so the model has no way to call it. The agent
-will respond by explaining the denial — exactly as instructed in the system
-prompt.
+The `tools_policy.deny` list strips `write_file` from the registry before
+the model is even told about it, so the model has no way to call it. The
+agent will respond by explaining the denial — exactly as instructed in
+the system prompt.
 
 This is the core idea of **Harness as Code**: you don't make agents
 trustworthy by writing better prompts. You make them trustworthy by
