@@ -308,6 +308,15 @@ func (h *Harness) Run(ctx context.Context, input string) (*agent.TurnResult, err
 	return h.agent.Run(ctx, input)
 }
 
+// RunStream executes a single agent turn with streaming token delivery.
+// onDelta is invoked synchronously for each text delta as the model emits it.
+// Tool execution semantics are identical to Run; only the assistant text
+// is streamed. Token usage is not reported (most providers omit it on
+// streaming responses) — fall back to Run when accurate accounting matters.
+func (h *Harness) RunStream(ctx context.Context, input string, onDelta agent.StreamCallback) (*agent.TurnResult, error) {
+	return h.agent.RunStream(ctx, input, onDelta)
+}
+
 // RunSession starts the session lifecycle.
 func (h *Harness) RunSession(ctx context.Context) error {
 	return h.agent.RunSession(ctx)
