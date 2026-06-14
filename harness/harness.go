@@ -42,7 +42,8 @@ type Harness struct {
 
 	// reloadMu serializes Reload() against itself so concurrent meta-tool
 	// calls (e.g. two create_tool calls in a single agent turn) cannot
-	// race when they all trigger a rescan.
+	// race when they all trigger a rescan. Also serializes the per-turn
+	// OnTurnStart scan against ad-hoc Reload() callers.
 	reloadMu sync.Mutex
 
 	// fileTools / fileHooks track artifacts loaded from disk so Reload()
@@ -50,6 +51,13 @@ type Harness struct {
 	// inline-config or built-in (delegate, harness_*) registrations.
 	fileTools map[string]struct{}
 	fileHooks map[string]struct{}
+
+	// originalSystemPrompt is cfg.Context.SystemPrompt as loaded from
+	// the harness config. Per-turn discovery rebuilds the live system
+	// prompt from this base each turn so that adding / editing / removing
+	// .harness/context/*.md or .harness/skills/*.md files takes effect on
+	// the next turn without accumulating stale layers.
+	originalSystemPrompt string
 }
 
 // New loads a harness from a configuration file (supports .md and .yaml).
@@ -62,16 +70,12 @@ func New(configPath string) (*Harness, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Switch baseDir from "." (NewFromConfig default) to the config
+	// file's directory and re-scan so the initial system prompt includes
+	// any context/skills artifacts that live alongside the config file.
 	h.baseDir = filepath.Dir(configPath)
-	// Track which tools/hooks came from the .harness/ directory so
-	// Reload() can correctly diff disk state against the registry.
-	if dirResult, derr := config.LoadDirectory(h.baseDir); derr == nil && dirResult != nil && dirResult.Config != nil {
-		for _, t := range dirResult.Config.Tools {
-			h.fileTools[t.Name] = struct{}{}
-		}
-		for _, hk := range dirResult.Config.Hooks {
-			h.fileHooks[hk.Handler] = struct{}{}
-		}
+	if perr := h.scanAndApply(context.Background()); perr != nil {
+		return nil, fmt.Errorf("initial artifact scan (with config baseDir): %w", perr)
 	}
 	return h, nil
 }
@@ -239,17 +243,18 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 
 	h := &Harness{
-		cfg:        cfg,
-		client:     client,
-		registry:   registry,
-		hookSystem: hookSystem,
-		ctxMgr:     ctxMgr,
-		engine:     engine,
-		delegator:  delegator,
-		agents:     agents,
-		baseDir:    ".",
-		fileTools:  make(map[string]struct{}),
-		fileHooks:  make(map[string]struct{}),
+		cfg:                  cfg,
+		client:               client,
+		registry:             registry,
+		hookSystem:           hookSystem,
+		ctxMgr:               ctxMgr,
+		engine:               engine,
+		delegator:            delegator,
+		agents:               agents,
+		baseDir:              ".",
+		fileTools:            make(map[string]struct{}),
+		fileHooks:            make(map[string]struct{}),
+		originalSystemPrompt: cfg.Context.SystemPrompt,
 	}
 	if h.cfg == nil {
 		h.cfg = &config.Config{}
@@ -278,11 +283,12 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 
 	h.agent = agent.New(agent.Options{
-		Client:  client,
-		Tools:   registry,
-		Hooks:   hookSystem,
-		Context: ctxMgr,
-		Logger:  Logger().With("component", "harness"),
+		Client:      client,
+		Tools:       registry,
+		Hooks:       hookSystem,
+		Context:     ctxMgr,
+		Logger:      Logger().With("component", "harness"),
+		OnTurnStart: h.onTurnStart,
 	})
 
 	// Register self-augmenting meta-tools (Phase 5.8). These let the
@@ -292,12 +298,13 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 		return nil, fmt.Errorf("register self-augment tools: %w", err)
 	}
 
-	// Augment the active context manager's system prompt with a short
-	// note so the LLM is aware it can extend its own harness. We do this
-	// AFTER the ctxMgr is constructed so we don't disturb the original
-	// cfg.Context.SystemPrompt that gets persisted/audited elsewhere.
-	if augmented := augmentSystemPromptForSelfAugment(cfg.Context.SystemPrompt); augmented != cfg.Context.SystemPrompt {
-		ctxMgr.SetSystemPrompt(augmented)
+	// Build the initial system prompt by performing one scan up front.
+	// From here on, agent.Run() invokes h.onTurnStart at the top of
+	// every turn — there is no need to call Reload() explicitly. Adding
+	// (or editing, or deleting) any file under .harness/{tools,hooks,
+	// context,skills}/ takes effect on the next agent turn.
+	if perr := h.scanAndApply(context.Background()); perr != nil {
+		return nil, fmt.Errorf("initial artifact scan: %w", perr)
 	}
 
 	return h, nil

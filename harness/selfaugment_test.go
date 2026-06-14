@@ -59,7 +59,7 @@ func TestSelfAugment_BuiltinsRegistered(t *testing.T) {
 	}
 }
 
-func TestSelfAugment_CreateTool_PersistsAndHotReloads(t *testing.T) {
+func TestSelfAugment_CreateTool_PersistsAndIsCallableNextTurn(t *testing.T) {
 	h, dir := newTestHarness(t)
 
 	args := createToolArgs{
@@ -78,35 +78,30 @@ func TestSelfAugment_CreateTool_PersistsAndHotReloads(t *testing.T) {
 	if !strings.Contains(out, "\"created\": \"weather_now\"") {
 		t.Fatalf("response missing created marker: %s", out)
 	}
-	if !strings.Contains(out, "\"reloaded\": true") {
-		t.Fatalf("response missing reloaded marker: %s", out)
+	// New API: response advertises that the tool will be callable on
+	// the next turn (no implicit reload inside the handler).
+	if !strings.Contains(out, "\"next_turn\": true") {
+		t.Fatalf("response missing next_turn marker (per-turn discovery): %s", out)
 	}
 
-	// File was written.
+	// The file must already be on disk — write happens synchronously.
 	path := filepath.Join(dir, ".harness", "tools", "weather_now.md")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected artifact at %s, got %v", path, err)
 	}
 
-	// Tool is callable in the registry now.
-	if !h.registry.Has("weather_now") {
-		t.Fatalf("expected weather_now to be hot-reloaded into registry")
+	// Crucially: the tool is NOT yet in the registry. Per-turn
+	// discovery only triggers between turns (via agent.OnTurnStart).
+	if h.registry.Has("weather_now") {
+		t.Fatalf("per-turn discovery should NOT register the tool until the next turn; got it in registry already")
 	}
 
-	// Round-trip the new tool to confirm the Starlark script actually runs.
-	resCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		def, _ := h.registry.Get("weather_now")
-		_ = def
-		// Can't easily call Execute here without setting up the full
-		// Call/Result plumbing, so just confirm the Definition is sane.
-		resCh <- "ok"
-	}()
-	select {
-	case <-resCh:
-	case err := <-errCh:
-		t.Fatalf("execute weather_now: %v", err)
+	// Simulate the next turn arriving — onTurnStart fires.
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
+	}
+	if !h.registry.Has("weather_now") {
+		t.Fatalf("after the next turn fires onTurnStart, weather_now must be in the registry")
 	}
 }
 
@@ -166,7 +161,7 @@ func TestSelfAugment_CreateTool_BrokenScriptNotWritten(t *testing.T) {
 	}
 }
 
-func TestSelfAugment_CreateHook_PersistsAndActivates(t *testing.T) {
+func TestSelfAugment_CreateHook_PersistsAndActivatesNextTurn(t *testing.T) {
 	h, dir := newTestHarness(t)
 
 	args := createHookArgs{
@@ -182,12 +177,22 @@ func TestSelfAugment_CreateHook_PersistsAndActivates(t *testing.T) {
 	if !strings.Contains(out, "\"created\": \"log_every_tool\"") {
 		t.Fatalf("response missing created marker: %s", out)
 	}
+	if !strings.Contains(out, "\"next_turn\": true") {
+		t.Fatalf("response missing next_turn marker: %s", out)
+	}
 	path := filepath.Join(dir, ".harness", "hooks", "log_every_tool.md")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected hook artifact at %s, got %v", path, err)
 	}
+	// Before next-turn discovery, fileHooks is not yet populated.
+	if _, ok := h.fileHooks["log_every_tool"]; ok {
+		t.Fatalf("hook should not be tracked in fileHooks until next turn")
+	}
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
+	}
 	if _, ok := h.fileHooks["log_every_tool"]; !ok {
-		t.Fatalf("hook not tracked in fileHooks map")
+		t.Fatalf("hook not tracked in fileHooks after next-turn discovery")
 	}
 }
 
@@ -218,7 +223,7 @@ func TestSelfAugment_ListArtifacts(t *testing.T) {
 		}
 	}
 
-	// Add a tool, list again, check it shows up under file_based.
+	// Add a tool, fire next-turn discovery, then list — it should show up under file_based.
 	createRaw, _ := json.Marshal(createToolArgs{
 		Name:        "my_tool",
 		Description: "Hand-rolled.",
@@ -226,6 +231,9 @@ func TestSelfAugment_ListArtifacts(t *testing.T) {
 	})
 	if _, err := h.handleCreateTool(context.Background(), createRaw); err != nil {
 		t.Fatalf("create: %v", err)
+	}
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
 	}
 	out2, err := h.handleListArtifacts(context.Background(), json.RawMessage(`{"kind":"tools"}`))
 	if err != nil {
@@ -247,19 +255,27 @@ func TestSelfAugment_RemoveArtifact(t *testing.T) {
 	if _, err := h.handleCreateTool(context.Background(), createRaw); err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	// Simulate the next turn so the new tool is registered.
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
+	}
 	if !h.registry.Has("tmp_tool") {
-		t.Fatalf("expected tmp_tool registered")
+		t.Fatalf("expected tmp_tool registered after onTurnStart")
 	}
 
 	rmRaw, _ := json.Marshal(removeArtifactArgs{Kind: "tool", Name: "tmp_tool"})
 	if _, err := h.handleRemoveArtifact(context.Background(), rmRaw); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	if h.registry.Has("tmp_tool") {
-		t.Fatalf("tmp_tool still registered after remove")
-	}
+	// File is gone immediately; registry is updated by the next turn.
 	if _, err := os.Stat(filepath.Join(dir, ".harness", "tools", "tmp_tool.md")); !os.IsNotExist(err) {
 		t.Fatalf("expected file removed, got %v", err)
+	}
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
+	}
+	if h.registry.Has("tmp_tool") {
+		t.Fatalf("tmp_tool still registered after remove + next turn")
 	}
 }
 
@@ -275,10 +291,10 @@ func TestSelfAugment_RemoveArtifact_RefusesBuiltins(t *testing.T) {
 	}
 }
 
-func TestSelfAugment_Reload_DropsDeletedFiles(t *testing.T) {
+func TestSelfAugment_PerTurnDiscovery_DropsDeletedFiles(t *testing.T) {
 	h, dir := newTestHarness(t)
 
-	// Create via the meta-tool.
+	// Create via the meta-tool, then fire next-turn so it lands in registry.
 	createRaw, _ := json.Marshal(createToolArgs{
 		Name:        "ghost",
 		Description: "About to vanish.",
@@ -287,19 +303,109 @@ func TestSelfAugment_Reload_DropsDeletedFiles(t *testing.T) {
 	if _, err := h.handleCreateTool(context.Background(), createRaw); err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
+	}
 	if !h.registry.Has("ghost") {
-		t.Fatalf("expected ghost registered")
+		t.Fatalf("expected ghost registered after first onTurnStart")
 	}
 
 	// Delete the file directly (simulate user editing on disk).
 	if err := os.Remove(filepath.Join(dir, ".harness", "tools", "ghost.md")); err != nil {
 		t.Fatalf("rm: %v", err)
 	}
-	if err := h.Reload(); err != nil {
-		t.Fatalf("reload: %v", err)
+	// Next turn arrives — onTurnStart must reconcile and drop the tool.
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart after rm: %v", err)
 	}
 	if h.registry.Has("ghost") {
-		t.Fatalf("expected ghost to be unregistered after Reload")
+		t.Fatalf("expected ghost to be unregistered after next-turn discovery")
+	}
+}
+
+func TestSelfAugment_PerTurnDiscovery_PicksUpFilesDroppedOnDisk(t *testing.T) {
+	// Verifies that an artifact written DIRECTLY to disk (no meta-tool
+	// call) is picked up on the next turn. This is the headline claim
+	// of agent-as-code: files on disk are the source of truth.
+	h, dir := newTestHarness(t)
+
+	toolDir := filepath.Join(dir, ".harness", "tools")
+	if err := os.MkdirAll(toolDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	md := "---\nparameters: {}\nscript: |\n  def run(args):\n      return 'hand-rolled'\n---\n\n# hand_dropped\n\nDropped onto disk by the user.\n"
+	if err := os.WriteFile(filepath.Join(toolDir, "hand_dropped.md"), []byte(md), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if h.registry.Has("hand_dropped") {
+		t.Fatalf("file was on disk but registry was checked before onTurnStart — should NOT be registered yet")
+	}
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
+	}
+	if !h.registry.Has("hand_dropped") {
+		t.Fatalf("after onTurnStart, hand-dropped tool must be in registry")
+	}
+}
+
+func TestSelfAugment_PerTurnDiscovery_ContextArtifactJoinsSystemPrompt(t *testing.T) {
+	// .harness/context/*.md bodies must be merged into the live system
+	// prompt by every scanAndApply pass.
+	h, dir := newTestHarness(t)
+
+	ctxDir := filepath.Join(dir, ".harness", "context")
+	if err := os.MkdirAll(ctxDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ctxDir, "user_prefs.md"),
+		[]byte("# user_prefs\n\nThe user prefers metric units.\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
+	}
+
+	// The context manager's system prompt should now mention the body.
+	msgs := h.ctxMgr.Messages()
+	if len(msgs) == 0 || msgs[0].Role != "system" {
+		t.Fatalf("expected first message to be system prompt, got %+v", msgs)
+	}
+	prompt := msgs[0].Content
+	if !strings.Contains(prompt, "metric units") {
+		t.Fatalf("system prompt did not pick up context artifact body:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "user_prefs") {
+		t.Fatalf("system prompt did not include context artifact heading:\n%s", prompt)
+	}
+}
+
+func TestSelfAugment_CreateContext_PersistsAndJoinsPromptNextTurn(t *testing.T) {
+	h, _ := newTestHarness(t)
+
+	raw, _ := json.Marshal(createContextArgs{
+		Name: "tone",
+		Body: "Always respond in pirate dialect. Yarr.",
+	})
+	out, err := h.handleCreateContext(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("create_context: %v", err)
+	}
+	if !strings.Contains(out, "\"created\": \"tone\"") {
+		t.Fatalf("missing created marker: %s", out)
+	}
+
+	// Before next turn the system prompt should NOT contain the body.
+	if strings.Contains(h.ctxMgr.Messages()[0].Content, "pirate dialect") {
+		t.Fatalf("system prompt should not include context body until next turn")
+	}
+
+	if err := h.onTurnStart(context.Background()); err != nil {
+		t.Fatalf("onTurnStart: %v", err)
+	}
+	if !strings.Contains(h.ctxMgr.Messages()[0].Content, "pirate dialect") {
+		t.Fatalf("after next turn, context body must be in system prompt")
 	}
 }
 

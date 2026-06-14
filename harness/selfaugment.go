@@ -46,11 +46,12 @@ var artifactNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 var builtinToolNames = []string{
 	"harness_create_tool",
 	"harness_create_hook",
+	"harness_create_context",
 	"harness_list_artifacts",
 	"harness_remove_artifact",
 }
 
-// registerSelfAugmentTools installs the four self-augmenting meta-tools
+// registerSelfAugmentTools installs the five self-augmenting meta-tools
 // onto the harness's tool registry. Called once during NewFromConfig.
 func registerSelfAugmentTools(h *Harness) error {
 	defs := []struct {
@@ -59,6 +60,7 @@ func registerSelfAugmentTools(h *Harness) error {
 	}{
 		{createToolDefinition(), h.handleCreateTool},
 		{createHookDefinition(), h.handleCreateHook},
+		{createContextDefinition(), h.handleCreateContext},
 		{listArtifactsDefinition(), h.handleListArtifacts},
 		{removeArtifactDefinition(), h.handleRemoveArtifact},
 	}
@@ -140,13 +142,39 @@ func removeArtifactDefinition() tools.Definition {
 	return tools.Definition{
 		Name: "harness_remove_artifact",
 		Description: "Delete an artifact file from `.harness/` and unregister it from the running " +
-			"harness. Refuses to remove built-in tools (delegate, harness_*). Use carefully — this " +
-			"is destructive and persists across restarts because the underlying file is deleted.",
+			"harness on the next turn. Refuses to remove built-in tools (delegate, harness_*). Use " +
+			"carefully — this is destructive and persists across restarts because the underlying " +
+			"file is deleted.",
 		Parameters: []tools.Parameter{
 			{Name: "kind", Type: tools.TypeString, Required: true,
-				Description: "Artifact category: \"tool\" or \"hook\"."},
+				Description: "Artifact category: \"tool\", \"hook\", \"context\", or \"skill\"."},
 			{Name: "name", Type: tools.TypeString, Required: true,
 				Description: "Artifact name (matches the file basename, no extension)."},
+		},
+	}
+}
+
+// createContextDefinition exposes harness_create_context — the prose
+// counterpart to create_tool / create_hook. Writes a plain `.md` file
+// to `.harness/context/<name>.md`; its body is injected into the live
+// system prompt by buildSystemPrompt on the next turn. Use for stable
+// facts the model should remember about the user across turns
+// (preferences, naming, project context, etc.).
+func createContextDefinition() tools.Definition {
+	return tools.Definition{
+		Name: "harness_create_context",
+		Description: "Persist a stable fact about the user, the project, or the environment so " +
+			"future turns automatically know it. Writes `.harness/context/<name>.md`; the body is " +
+			"merged into the system prompt at the start of every subsequent turn. Use for things " +
+			"like \"user prefers metric units\", \"project uses TypeScript strict mode\", or any " +
+			"long-lived preference. Do NOT use for transient state — use the conversation for that. " +
+			"There is no compile-check (this is prose, not code), and the file persists across " +
+			"restarts.",
+		Parameters: []tools.Parameter{
+			{Name: "name", Type: tools.TypeString, Required: true,
+				Description: "Context file name. Lowercase, digits, underscore, hyphen only (1-64 chars). Becomes the section heading in the system prompt."},
+			{Name: "body", Type: tools.TypeString, Required: true,
+				Description: "Markdown body to inject into the system prompt. Keep it concise — every byte stays in context on every turn."},
 		},
 	}
 }
@@ -211,18 +239,18 @@ func (h *Harness) handleCreateTool(_ context.Context, raw json.RawMessage) (stri
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 
-	// Hot-reload so the tool becomes immediately callable.
-	if err := h.Reload(); err != nil {
-		return "", fmt.Errorf("reload after create_tool: %w", err)
-	}
+	// Hot-reload is no longer triggered here. Per-turn artifact discovery
+	// (Harness.onTurnStart, invoked by agent.Run before every turn)
+	// reconciles the registry against on-disk state automatically. The
+	// new tool will be callable on the next agent turn — write-and-go.
 
 	resp := map[string]any{
 		"status":      "ok",
 		"created":     args.Name,
 		"path":        relPath(h.baseDir, path),
 		"description": strings.TrimSpace(args.Description),
-		"reloaded":    true,
-		"hint":        fmt.Sprintf("Tool %q is now callable. You can invoke it on your next step.", args.Name),
+		"next_turn":   true,
+		"hint":        fmt.Sprintf("Tool %q has been written to disk and will be loaded at the start of the next turn. If you tried to call it within the SAME turn it would fail — the registry only refreshes between turns.", args.Name),
 	}
 	out, _ := json.MarshalIndent(resp, "", "  ")
 	return string(out), nil
@@ -269,17 +297,15 @@ func (h *Harness) handleCreateHook(_ context.Context, raw json.RawMessage) (stri
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 
-	if err := h.Reload(); err != nil {
-		return "", fmt.Errorf("reload after create_hook: %w", err)
-	}
-
+	// No Reload() call — per-turn discovery picks this hook up on the
+	// next agent turn. Write-and-go.
 	resp := map[string]any{
-		"status":   "ok",
-		"created":  args.Name,
-		"event":    args.Event,
-		"path":     relPath(h.baseDir, path),
-		"reloaded": true,
-		"hint":     fmt.Sprintf("Hook %q on event %q is now active.", args.Name, args.Event),
+		"status":    "ok",
+		"created":   args.Name,
+		"event":     args.Event,
+		"path":      relPath(h.baseDir, path),
+		"next_turn": true,
+		"hint":      fmt.Sprintf("Hook %q on event %q has been written to disk and will be active on the next agent turn.", args.Name, args.Event),
 	}
 	out, _ := json.MarshalIndent(resp, "", "  ")
 	return string(out), nil
@@ -337,6 +363,30 @@ func (h *Harness) handleListArtifacts(_ context.Context, raw json.RawMessage) (s
 		resp["hooks"] = hookRows
 	}
 
+	if kind == "all" || kind == "context" || kind == "contexts" {
+		arts, _ := loadProseArtifacts(filepath.Join(h.baseDir, ".harness", "context"))
+		var rows []map[string]string
+		for _, a := range arts {
+			rows = append(rows, map[string]string{
+				"name":    a.Name,
+				"preview": truncate(a.Body, 200),
+			})
+		}
+		resp["context"] = rows
+	}
+
+	if kind == "all" || kind == "skill" || kind == "skills" {
+		arts, _ := loadProseArtifacts(filepath.Join(h.baseDir, ".harness", "skills"))
+		var rows []map[string]string
+		for _, a := range arts {
+			rows = append(rows, map[string]string{
+				"name":    a.Name,
+				"preview": truncate(a.Body, 200),
+			})
+		}
+		resp["skills"] = rows
+	}
+
 	if kind == "all" || kind == "agents" {
 		var agentRows []map[string]string
 		for name, ac := range h.agents {
@@ -351,6 +401,48 @@ func (h *Harness) handleListArtifacts(_ context.Context, raw json.RawMessage) (s
 	}
 
 	resp["base_dir"] = h.baseDir
+	out, _ := json.MarshalIndent(resp, "", "  ")
+	return string(out), nil
+}
+
+type createContextArgs struct {
+	Name string `json:"name"`
+	Body string `json:"body"`
+}
+
+func (h *Harness) handleCreateContext(_ context.Context, raw json.RawMessage) (string, error) {
+	var args createContextArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if !artifactNameRe.MatchString(args.Name) {
+		return "", fmt.Errorf("invalid context name %q: must match ^[a-z0-9][a-z0-9_-]{0,63}$", args.Name)
+	}
+	if strings.TrimSpace(args.Body) == "" {
+		return "", fmt.Errorf("body must be non-empty")
+	}
+
+	dir := filepath.Join(h.baseDir, ".harness", "context")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, args.Name+".md")
+	contents := "# " + args.Name + "\n\n" + strings.TrimSpace(args.Body) + "\n\n" +
+		"<!-- Authored by harness_create_context at " + time.Now().UTC().Format(time.RFC3339) + " -->\n"
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
+	}
+
+	// No reload — per-turn discovery picks this up on the next turn,
+	// at which point the body is automatically merged into the live
+	// system prompt by buildSystemPrompt.
+	resp := map[string]any{
+		"status":    "ok",
+		"created":   args.Name,
+		"path":      relPath(h.baseDir, path),
+		"next_turn": true,
+		"hint":      "This context is now persisted to disk. On the next agent turn (and forever after), it will be injected into the system prompt under `## Active Context Artifacts`.",
+	}
 	out, _ := json.MarshalIndent(resp, "", "  ")
 	return string(out), nil
 }
@@ -378,8 +470,12 @@ func (h *Harness) handleRemoveArtifact(_ context.Context, raw json.RawMessage) (
 		subdir = "tools"
 	case "hook", "hooks":
 		subdir = "hooks"
+	case "context", "contexts":
+		subdir = "context"
+	case "skill", "skills":
+		subdir = "skills"
 	default:
-		return "", fmt.Errorf("kind must be \"tool\" or \"hook\", got %q", args.Kind)
+		return "", fmt.Errorf("kind must be \"tool\", \"hook\", \"context\", or \"skill\"; got %q", args.Kind)
 	}
 
 	path := filepath.Join(h.baseDir, ".harness", subdir, args.Name+".md")
@@ -392,34 +488,56 @@ func (h *Harness) handleRemoveArtifact(_ context.Context, raw json.RawMessage) (
 		return "", fmt.Errorf("remove %s: %w", path, err)
 	}
 
-	if err := h.Reload(); err != nil {
-		return "", fmt.Errorf("reload after remove_artifact: %w", err)
-	}
-
+	// No Reload() call — per-turn discovery will drop the unregistered
+	// artifact at the start of the next turn.
 	resp := map[string]any{
-		"status":   "ok",
-		"removed":  args.Name,
-		"kind":     subdir,
-		"path":     relPath(h.baseDir, path),
-		"reloaded": true,
+		"status":    "ok",
+		"removed":   args.Name,
+		"kind":      subdir,
+		"path":      relPath(h.baseDir, path),
+		"next_turn": true,
 	}
 	out, _ := json.MarshalIndent(resp, "", "  ")
 	return string(out), nil
 }
 
-// ---------- Reload ----------
+// ---------- per-turn artifact discovery ----------
 
-// Reload rescans `.harness/tools/` and `.harness/hooks/` and reconciles the
-// running registry / hook system against disk state. New artifact files are
-// registered, modified files are re-registered (the `Replace` path), and
-// files that have been deleted on disk are unregistered.
-//
-// Built-in tools (`delegate`, `harness_*`) and inline-config tools/hooks
-// declared directly in the main harness.md frontmatter are never touched.
-//
-// Safe for concurrent use; serialized by reloadMu so multiple meta-tool
-// calls in the same agent turn cannot race.
+// onTurnStart is wired into agent.Options.OnTurnStart so that every
+// turn begins with a fresh reconciliation of `.harness/` artifacts.
+// This is the heart of the "agent-as-code" model: there is no concept
+// of explicit reload — files on disk are the source of truth, and the
+// runtime catches up automatically before each turn. Scan failures
+// fail the turn so the user gets a clear error rather than a silently
+// stale registry.
+func (h *Harness) onTurnStart(ctx context.Context) error {
+	return h.scanAndApply(ctx)
+}
+
+// Reload performs a one-shot reconciliation of disk → runtime state.
+// Kept as a public method for embedders that drive the harness outside
+// the agent loop, but normal `harness serve` usage no longer needs to
+// call this — onTurnStart handles it per turn.
 func (h *Harness) Reload() error {
+	return h.scanAndApply(context.Background())
+}
+
+// scanAndApply is the single source of truth for translating
+// `.harness/` directory state into the live runtime. It:
+//
+//  1. Scans .harness/tools/*.md and .harness/hooks/*.md; replaces or
+//     registers each entry; unregisters anything that used to be on
+//     disk but no longer is.
+//  2. Scans .harness/context/*.md and .harness/skills/*.md (free-form
+//     prose artifacts that augment the system prompt).
+//  3. Rebuilds the live system prompt from h.originalSystemPrompt +
+//     the self-augment suffix + each context artifact body + each
+//     skill artifact body, in stable filename order, and pushes it to
+//     the context manager.
+//
+// Mutex-serialized so concurrent meta-tool calls and the per-turn
+// callback cannot race.
+func (h *Harness) scanAndApply(_ context.Context) error {
 	h.reloadMu.Lock()
 	defer h.reloadMu.Unlock()
 
@@ -427,13 +545,41 @@ func (h *Harness) Reload() error {
 	if err != nil {
 		return fmt.Errorf("scan .harness: %w", err)
 	}
-	if dirResult == nil || dirResult.Config == nil {
-		return nil
+	if dirResult != nil && dirResult.Config != nil {
+		if rerr := h.reconcileToolsHooks(dirResult); rerr != nil {
+			return rerr
+		}
 	}
 
+	// Prose artifacts that augment the system prompt.
+	contextArts, err := loadProseArtifacts(filepath.Join(h.baseDir, ".harness", "context"))
+	if err != nil {
+		return fmt.Errorf("scan .harness/context: %w", err)
+	}
+	skillArts, err := loadProseArtifacts(filepath.Join(h.baseDir, ".harness", "skills"))
+	if err != nil {
+		return fmt.Errorf("scan .harness/skills: %w", err)
+	}
+
+	h.ctxMgr.SetSystemPrompt(buildSystemPrompt(h.originalSystemPrompt, contextArts, skillArts))
+	return nil
+}
+
+// reconcileToolsHooks performs the diff-against-disk update for tools
+// and hooks. Extracted from the old Reload() body so scanAndApply can
+// call it without duplicating the logic.
+func (h *Harness) reconcileToolsHooks(dirResult *config.LoadResult) error {
 	// --- Tools ---
 	newToolNames := make(map[string]struct{}, len(dirResult.Config.Tools))
 	for _, tc := range dirResult.Config.Tools {
+		// Refuse to clobber built-ins by accident — a user could create
+		// a `.harness/tools/delegate.md` and break the harness.
+		if isBuiltinToolName(tc.Name) || tc.Name == "delegate" ||
+			tc.Name == "delegate_async" || tc.Name == "delegate_status" ||
+			tc.Name == "delegate_result" {
+			Logger().Warn("ignoring file-based tool with reserved name", "name", tc.Name)
+			continue
+		}
 		newToolNames[tc.Name] = struct{}{}
 
 		def := definitionFromConfig(tc)
@@ -449,15 +595,6 @@ func (h *Harness) Reload() error {
 		}
 		if tc.TimeoutMS > 0 {
 			handler = tools.WithTimeout(handler, time.Duration(tc.TimeoutMS)*time.Millisecond)
-		}
-
-		// Replace overwrites if the tool already exists, otherwise registers.
-		// Refuse to clobber built-ins by accident — a user could create a
-		// `.harness/tools/delegate.md` and break the harness.
-		if isBuiltinToolName(tc.Name) || tc.Name == "delegate" || tc.Name == "delegate_async" || tc.Name == "delegate_status" || tc.Name == "delegate_result" {
-			Logger().Warn("ignoring file-based tool with reserved name", "name", tc.Name)
-			delete(newToolNames, tc.Name)
-			continue
 		}
 		if err := h.registry.Replace(def, handler); err != nil {
 			return fmt.Errorf("replace tool %q: %w", tc.Name, err)
@@ -499,8 +636,8 @@ func (h *Harness) Reload() error {
 			Handler:  handler,
 		})
 	}
-	// Drop hooks that used to be on disk but no longer are. We don't know
-	// the original event for unregister, so iterate every event.
+	// Drop hooks that used to be on disk but no longer are. We don't
+	// know the original event for unregister, so iterate every event.
 	for name := range h.fileHooks {
 		if _, stillThere := newHookNames[name]; !stillThere {
 			for _, ev := range allHookEvents {
@@ -513,8 +650,88 @@ func (h *Harness) Reload() error {
 	return nil
 }
 
+// proseArtifact is a free-form `.md` file under `.harness/context/` or
+// `.harness/skills/` whose body is injected into the live system
+// prompt. Frontmatter (if any) is stripped — only the markdown body is
+// surfaced to the model.
+type proseArtifact struct {
+	Name string
+	Body string
+}
+
+// loadProseArtifacts reads every `.md` file in dir, strips optional
+// frontmatter via config.ParseMarkdown, and returns the bodies in
+// stable filename order. Missing dir is not an error (returns nil).
+func loadProseArtifacts(dir string) ([]proseArtifact, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []proseArtifact
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, rerr := os.ReadFile(filepath.Join(dir, e.Name()))
+		if rerr != nil {
+			return nil, fmt.Errorf("read %s: %w", e.Name(), rerr)
+		}
+		body := string(data)
+		if doc, perr := config.ParseMarkdown(data); perr == nil && doc != nil {
+			if strings.TrimSpace(doc.Body) != "" {
+				body = doc.Body
+			}
+		}
+		out = append(out, proseArtifact{
+			Name: strings.TrimSuffix(e.Name(), ".md"),
+			Body: strings.TrimSpace(body),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// buildSystemPrompt composes the live system prompt for the next turn.
+// Stable, idempotent: the same inputs always produce the same output,
+// so a per-turn rescan that finds no changes produces no churn in the
+// model's context.
+func buildSystemPrompt(base string, contextArts, skillArts []proseArtifact) string {
+	var sb strings.Builder
+	sb.WriteString(strings.TrimRight(base, "\n"))
+	sb.WriteString(selfAugmentPromptSuffix)
+
+	if len(contextArts) > 0 {
+		sb.WriteString("\n\n## Active Context Artifacts\n\n")
+		sb.WriteString("These are user-authored notes loaded from `.harness/context/`. Add, edit, or remove files there to update what you remember about the user.\n")
+		for _, a := range contextArts {
+			sb.WriteString("\n### ")
+			sb.WriteString(a.Name)
+			sb.WriteString("\n\n")
+			sb.WriteString(a.Body)
+			sb.WriteString("\n")
+		}
+	}
+
+	if len(skillArts) > 0 {
+		sb.WriteString("\n\n## Active Skills\n\n")
+		sb.WriteString("These are procedures loaded from `.harness/skills/`. Follow them when the situation matches.\n")
+		for _, a := range skillArts {
+			sb.WriteString("\n### ")
+			sb.WriteString(a.Name)
+			sb.WriteString("\n\n")
+			sb.WriteString(a.Body)
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
 // allHookEvents enumerates every event Hook.Unregister might need to clear
-// during Reload. Kept in sync with hooks.IsValidEvent.
+// during scanAndApply. Kept in sync with hooks.IsValidEvent.
 var allHookEvents = []hooks.Event{
 	hooks.EventSessionStart,
 	hooks.EventSessionEnd,
@@ -533,24 +750,43 @@ var allHookEvents = []hooks.Event{
 
 const selfAugmentPromptSuffix = `
 
-## Self-Augmenting Harness (Phase 5.8)
+## Self-Augmenting Harness — Agent-as-Code
 
-You are running on AI Harness — a Go agent runtime where YOU can author
-your own harness at runtime. You have four built-in meta-tools:
+You are running on AI Harness, a Go agent runtime built on the
+**agent-as-code** principle: the ` + "`.harness/`" + ` directory on disk is the
+source of truth, and the runtime reconciles against it at the start of
+EVERY turn. There is no concept of "reloading" — adding, editing, or
+removing any file in ` + "`.harness/`" + ` takes effect on the very next turn,
+automatically.
 
-- **harness_list_artifacts** — call this whenever the user asks "what can
-  you do?" or before deciding to create a new tool. It returns every
-  registered tool, hook, and agent.
-- **harness_create_tool** — author a new tool by writing its Starlark
-  script and a clear description. The new tool is hot-reloaded and
-  callable on your very next step.
-- **harness_create_hook** — author a new hook (guardrails, logging,
-  redaction) on a lifecycle event. Active immediately after creation.
-- **harness_remove_artifact** — delete an artifact you created earlier.
+You have FIVE built-in meta-tools for authoring your own harness:
 
-When the user asks for a capability you don't have, prefer **creating a
-tool** over saying "I can't do that". The capability persists on disk
-(.harness/tools/<name>.md) and survives restarts.
+- **harness_list_artifacts** — what tools, hooks, context, and skills
+  are loaded right now. Call this when the user asks "what can you do?"
+  or before deciding whether a capability already exists.
+- **harness_create_tool** — write ` + "`.harness/tools/<name>.md`" + ` (Starlark
+  script + parameters + description). Callable on the **next** turn.
+- **harness_create_hook** — write ` + "`.harness/hooks/<name>.md`" + ` (Starlark
+  ` + "`def handle(event)`" + ` on a lifecycle event). Active on the **next** turn.
+- **harness_create_context** — write ` + "`.harness/context/<name>.md`" + ` (plain
+  markdown body). Merged into the system prompt on the **next** turn
+  and on every turn forever after. Use for stable preferences the user
+  wants you to remember.
+- **harness_remove_artifact** — delete a ` + "`.md`" + ` you wrote earlier. Gone
+  on the next turn. Refuses to touch built-ins.
+
+When the user asks for a capability you don't have, prefer **creating
+an artifact** over saying "I can't do that". Artifacts persist on disk
+and survive restarts.
+
+### IMPORTANT: artifacts written this turn are NOT callable this turn
+
+The registry refreshes BETWEEN turns. If you call ` + "`harness_create_tool`" + `
+in turn N, the new tool is callable in turn N+1, not in turn N. So:
+
+- ✅ Good: "Sure, I've created ` + "`weather_now`" + ` — ask me again and I'll use it."
+- ❌ Bad: Create the tool then try to call it immediately. It will not
+  be in the registry yet.
 
 ### CRITICAL — Scripts are Starlark, NOT Python
 

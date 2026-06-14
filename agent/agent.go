@@ -40,6 +40,15 @@ type Agent struct {
 	maxToolIterations int
 	composer          *artifact.Composer
 	turnNumber        int
+
+	// onTurnStart, if non-nil, is invoked once at the very beginning of
+	// every Run() call — before composer evaluation, before the user
+	// message is appended, before the first completion request. Used by
+	// the harness layer to rescan `.harness/` and reconcile the
+	// tools/hooks/system-prompt against on-disk artifacts so the next
+	// turn always sees the freshest state ("agent-as-code": files on
+	// disk are the source of truth, no explicit reload needed).
+	onTurnStart func(context.Context) error
 }
 
 // Options configures the agent.
@@ -54,6 +63,12 @@ type Options struct {
 	MaxToolIterations int
 	// Composer, if provided, will have EvaluateConditions called at the start of each turn.
 	Composer *artifact.Composer
+	// OnTurnStart, if provided, fires once at the start of every Run() call
+	// before the user message is added to context. Intended for the harness
+	// to reconcile .harness/ artifacts from disk so per-turn discovery is
+	// automatic and no explicit Reload() is needed. Returning a non-nil
+	// error fails the turn.
+	OnTurnStart func(context.Context) error
 }
 
 // New creates a new Agent with the given options.
@@ -80,6 +95,7 @@ func New(opts Options) *Agent {
 		logger:            opts.Logger,
 		maxToolIterations: maxIter,
 		composer:          opts.Composer,
+		onTurnStart:       opts.OnTurnStart,
 	}
 }
 
@@ -202,6 +218,17 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 		}
 		span.End()
 	}()
+
+	// Per-turn artifact discovery: let the embedder (harness layer)
+	// reconcile `.harness/` artifacts from disk BEFORE this turn sees
+	// the registry, the hook system, or the system prompt. Agent-as-code:
+	// dropping a .md file is the only action needed for the next turn
+	// to see it.
+	if a.onTurnStart != nil {
+		if oerr := a.onTurnStart(turnCtx); oerr != nil {
+			return nil, fmt.Errorf("on_turn_start: %w", oerr)
+		}
+	}
 
 	// Re-evaluate artifact conditions against fresh turn state
 	if a.composer != nil {
