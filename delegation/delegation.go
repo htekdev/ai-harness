@@ -71,7 +71,23 @@ type Request struct {
 	Tools        []ToolSpec `json:"tools"`
 	Hooks        []HookSpec `json:"hooks,omitempty"`
 	SystemPrompt string     `json:"system_prompt,omitempty"`
+	// Verify is an optional Starlark `run(result)` script that asserts
+	// the sub-agent's claimed work actually happened. It must return a
+	// JSON-encoded `{verified: bool, reason: str}` (issue #103). On
+	// failure the Delegator re-prompts the same delegate (Ralph loop)
+	// up to MaxVerifyRetries with the failure reason injected.
+	Verify string `json:"verify,omitempty"`
+	// MaxVerifyRetries caps the Ralph loop. Total attempts are
+	// MaxVerifyRetries+1 (one initial run plus up to N retries).
+	// Zero means use the package default (DefaultMaxVerifyRetries).
+	MaxVerifyRetries int `json:"max_verify_retries,omitempty"`
 }
+
+// DefaultMaxVerifyRetries is the default Ralph-loop retry budget when a
+// Request specifies a Verify script (or hooks are listening on
+// EventDelegatePostVerify) but does not set MaxVerifyRetries explicitly.
+// Total attempts = DefaultMaxVerifyRetries + 1 (one initial + N retries).
+const DefaultMaxVerifyRetries = 2
 
 // Result is the output of a delegation.
 type Result struct {
@@ -360,15 +376,134 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (result *Result, e
 
 	// Propagate depth to child context
 	childCtx := WithDepth(ctx, nextDepth)
-	turnResult, err := delegateAgent.Run(childCtx, req.Task)
-	if err != nil {
-		return nil, errs.Wrap(errs.KindDelegation, "delegation.execute", err, "delegate agent run failed")
+
+	// Ralph loop (issue #103): run the delegate, optionally evaluate
+	// declarative claims verification, and on failure re-prompt the same
+	// delegate (preserving its conversation context) with the verifier's
+	// failure reason. Caps at maxVerifyRetries+1 total attempts.
+	hasPostVerifyHooks := d.hookSystem != nil && len(d.hookSystem.HandlersFor(hooks.EventDelegatePostVerify)) > 0
+	verifyEnabled := req.Verify != "" || hasPostVerifyHooks
+
+	maxVerifyRetries := req.MaxVerifyRetries
+	if maxVerifyRetries < 0 {
+		maxVerifyRetries = 0
+	}
+	if maxVerifyRetries == 0 && verifyEnabled {
+		maxVerifyRetries = DefaultMaxVerifyRetries
+	}
+	maxAttempts := 1
+	if verifyEnabled {
+		maxAttempts = maxVerifyRetries + 1
 	}
 
-	result = &Result{
-		Response:    turnResult.Response,
-		ToolCalls:   turnResult.ToolCalls,
-		ToolResults: turnResult.ToolResults,
+	var (
+		lastReason     string
+		verifyAttempts int
+		verified       = !verifyEnabled // if no verifier, accept first run
+	)
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// Build the prompt for this attempt. The first attempt uses the
+		// original task; retries inject the verifier's failure reason
+		// so the delegate sees the truth and can correct course.
+		prompt := req.Task
+		if attempt > 0 {
+			prompt = fmt.Sprintf(
+				"VERIFICATION FAILED on the previous attempt: %s\n\n"+
+					"The task is NOT complete. Re-examine the actual state of the world and finish the work. "+
+					"Do not just claim success — actually verify the side effects exist before responding.",
+				lastReason,
+			)
+		}
+
+		turnResult, runErr := delegateAgent.Run(childCtx, prompt)
+		if runErr != nil {
+			return nil, errs.Wrap(errs.KindDelegation, "delegation.execute", runErr, "delegate agent run failed")
+		}
+
+		result = &Result{
+			Response:    turnResult.Response,
+			ToolCalls:   turnResult.ToolCalls,
+			ToolResults: turnResult.ToolResults,
+		}
+
+		if !verifyEnabled {
+			break
+		}
+
+		verifyAttempts++
+
+		// 1) Inline `verify:` Starlark script (if provided).
+		scriptVerified := true
+		var scriptReason string
+		if req.Verify != "" {
+			outcome, vErr := runVerifyScript(ctx, d.engine, req.Verify, result)
+			if vErr != nil {
+				// Compile/runtime errors are hard failures — operators
+				// want to see them, not silently retry.
+				return nil, errs.Wrap(errs.KindVerificationFailed, "delegation.verify", vErr, "verify script error")
+			}
+			scriptVerified = outcome.Verified
+			scriptReason = outcome.Reason
+		}
+
+		// 2) `delegation.post_verify` hook event — additional verifiers
+		//    can register declaratively. ActionBlock => verification
+		//    failure with the hook's Reason.
+		hookVerified := true
+		hookReason := ""
+		if hasPostVerifyHooks {
+			pvResult := d.hookSystem.Dispatch(ctx, hooks.EventDelegatePostVerify, result)
+			if pvResult.Action == hooks.ActionBlock {
+				hookVerified = false
+				hookReason = pvResult.Reason
+			}
+			// Hooks may also amend the result via ActionModify before the
+			// next verifier sees it.
+			if pvResult.Action == hooks.ActionModify {
+				if err := applyHookPayload(pvResult.Payload, result); err != nil {
+					return nil, fmt.Errorf("delegation.post_verify modify payload: %w", err)
+				}
+			}
+		}
+
+		if scriptVerified && hookVerified {
+			verified = true
+			break
+		}
+
+		// Compose the failure reason for the next retry's prompt.
+		switch {
+		case !scriptVerified && !hookVerified:
+			lastReason = fmt.Sprintf("%s; %s", scriptReason, hookReason)
+		case !scriptVerified:
+			lastReason = scriptReason
+		default:
+			lastReason = hookReason
+		}
+		if lastReason == "" {
+			lastReason = "verifier returned verified=false with no reason"
+		}
+	}
+
+	// Record verify telemetry on the delegation.execute span.
+	if verifyEnabled {
+		span.SetAttributes(
+			attribute.Int("delegation.verify_attempts", verifyAttempts),
+			attribute.Bool("delegation.verify_passed", verified),
+		)
+		if verified {
+			span.SetAttributes(attribute.String("delegation.verify_outcome", "passed"))
+		} else {
+			span.SetAttributes(attribute.String("delegation.verify_outcome", "failed"))
+		}
+	} else {
+		span.SetAttributes(attribute.String("delegation.verify_outcome", "skipped"))
+	}
+
+	if verifyEnabled && !verified {
+		return nil, errs.Newf(errs.KindVerificationFailed, "delegation.verify",
+			"delegation verification failed after %d attempt(s): %s", verifyAttempts, lastReason)
 	}
 
 	if d.hookSystem != nil {
@@ -674,6 +809,8 @@ You can override model or add extra tools/hooks on top of the agent's defaults.`
 				},
 			},
 			{Name: "system_prompt", Type: tools.TypeString, Description: "System prompt override (uses agent's prompt if omitted)", Required: false},
+			{Name: "verify", Type: tools.TypeString, Description: "Optional Starlark `run(result)` script that returns json.encode({verified: bool, reason: str}). On failure the same delegate is re-prompted with the failure reason (Ralph loop) up to max_verify_retries times. See issue #103.", Required: false},
+			{Name: "max_verify_retries", Type: tools.TypeNumber, Description: "Cap on Ralph-loop retries when verify is set. Total attempts = max_verify_retries+1. Defaults to 2.", Required: false},
 		},
 	}
 }
