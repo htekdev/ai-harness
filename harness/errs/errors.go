@@ -41,6 +41,11 @@ const (
 	KindSource
 	// KindPersistence: offset store, session store, or other state I/O failed.
 	KindPersistence
+	// KindInvalidConversation: outbound message array is malformed (e.g. a
+	// role:tool message has no matching preceding assistant tool_calls
+	// envelope). Surfacing this as a typed error lets the harness fail
+	// fast pre-flight instead of bouncing off a provider 400.
+	KindInvalidConversation
 )
 
 // String returns the canonical lower-case kind name. Stable for log/trace attrs.
@@ -58,6 +63,8 @@ func (k Kind) String() string {
 		return "source"
 	case KindPersistence:
 		return "persistence"
+	case KindInvalidConversation:
+		return "invalid_conversation"
 	default:
 		return "unknown"
 	}
