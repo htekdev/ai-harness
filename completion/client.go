@@ -189,6 +189,10 @@ func NewClient(config ClientConfig) *Client {
 func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 	req = c.prepareRequest(req)
 
+	if err := ValidateMessages(req.Messages); err != nil {
+		return nil, err
+	}
+
 	var lastErr error
 	for attempt := 0; attempt <= c.config.RetryPolicy.MaxRetries; attempt++ {
 		if err := c.waitForRetry(ctx, attempt); err != nil {
@@ -213,6 +217,10 @@ func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 func (c *Client) CompleteStream(ctx context.Context, req Request) (<-chan StreamChunk, error) {
 	req = c.prepareRequest(req)
 	req.Stream = true
+
+	if err := ValidateMessages(req.Messages); err != nil {
+		return nil, err
+	}
 
 	var (
 		httpResp *http.Response
