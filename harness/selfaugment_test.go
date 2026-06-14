@@ -285,6 +285,12 @@ func TestSelfAugment_AugmentSystemPromptIsIdempotent(t *testing.T) {
 	if !strings.Contains(once, "harness_create_tool") {
 		t.Fatalf("augmented prompt should mention the meta-tool")
 	}
+	if !strings.Contains(once, "Agent Execution Mode") {
+		t.Fatalf("augmented prompt should include Agent Execution Mode directives")
+	}
+	if !strings.Contains(once, "Execute immediately") {
+		t.Fatalf("augmented prompt should instruct the model to execute immediately")
+	}
 }
 
 func TestSelfAugment_RenderToolMarkdown_RoundTrips(t *testing.T) {
