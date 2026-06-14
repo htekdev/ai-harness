@@ -1,0 +1,11 @@
+.git
+.github
+workdir
+**/*_test.go
+**/testdata
+dist
+*.md
+!harness.md
+!README.md
+plan.md
+node_modules

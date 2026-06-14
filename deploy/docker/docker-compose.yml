@@ -1,0 +1,64 @@
+version: "3.9"
+
+# Reference compose file for running `harness serve` as a container.
+#
+# Layout this file expects on the host:
+#   ./harness.md          — your harness definition
+#   ./.harness/           — tools, hooks, sub-agents (optional)
+#   ./data/               — writable state (sessions, persistence DB)
+#   ./harness.env         — provider creds (chmod 0600, NEVER commit)
+
+services:
+  harness:
+    image: ghcr.io/htekdev/ai-harness:latest
+    # To build from source instead of pulling, comment out `image:` and use:
+    # build:
+    #   context: ../..
+    #   dockerfile: deploy/docker/Dockerfile
+    container_name: ai-harness
+    restart: unless-stopped
+    user: "65532:65532"      # distroless `nonroot`
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - ./harness.env
+    environment:
+      OTEL_SERVICE_NAME: ai-harness
+    volumes:
+      - ./harness.md:/work/harness.md:ro
+      - ./.harness:/work/.harness:ro
+      - ./data:/work/data:rw
+      # tmp must be writable for any tool that uses os.TempDir().
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 67108864     # 64 MiB
+    # `harness serve` is the default ENTRYPOINT/CMD; override per source set:
+    # command: ["serve", "--config", "/work/harness.md", "--source", "stdin"]
+    healthcheck:
+      # `harness validate` exits non-zero if the config is broken — cheap liveness signal.
+      test: ["CMD", "/usr/local/bin/harness", "validate", "--config", "/work/harness.md"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Optional: OTel collector for local trace inspection.
+  # Uncomment and point OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+  # in harness.env to wire it up.
+  #
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib:latest
+  #   command: ["--config=/etc/otelcol/config.yaml"]
+  #   volumes:
+  #     - ./otel-config.yaml:/etc/otelcol/config.yaml:ro
+  #   ports:
+  #     - "4318:4318"
