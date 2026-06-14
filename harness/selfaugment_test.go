@@ -124,6 +124,11 @@ func TestSelfAugment_CreateTool_RejectsBadInputs(t *testing.T) {
 		{"empty-desc", createToolArgs{Name: "ok_tool", Description: "  ", Script: "def run(args):\n    return ''\n"}, "description"},
 		{"missing-run", createToolArgs{Name: "ok_tool2", Description: "d", Script: "x = 1\n"}, "def run"},
 		{"bad-params-json", createToolArgs{Name: "ok_tool3", Description: "d", ParametersJSON: "not json", Script: "def run(args):\n    return ''\n"}, "parameters_json"},
+		// The bug Hector hit: model wrote Python `with open(...)` instead
+		// of Starlark `fs.read/write`. Compile-check must catch it before
+		// the artifact ever lands on disk.
+		{"python-with", createToolArgs{Name: "py_with", Description: "d", Script: "def run(args):\n    with open(args['p']) as f:\n        return f.read()\n"}, "does not compile"},
+		{"python-fstring", createToolArgs{Name: "py_fstr", Description: "d", Script: "def run(args):\n    return f'hi {args[\"name\"]}'\n"}, "does not compile"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,6 +141,28 @@ func TestSelfAugment_CreateTool_RejectsBadInputs(t *testing.T) {
 				t.Errorf("error %q missing substring %q", err.Error(), tc.want)
 			}
 		})
+	}
+}
+
+// TestSelfAugment_CreateTool_BrokenScriptNotWritten verifies that a
+// failed compile-check does NOT leave a broken artifact on disk. This
+// is the regression that bricked the live Telegram bot — every restart
+// re-loaded the broken script and crashed at startup.
+func TestSelfAugment_CreateTool_BrokenScriptNotWritten(t *testing.T) {
+	h, dir := newTestHarness(t)
+
+	raw, _ := json.Marshal(createToolArgs{
+		Name:        "broken",
+		Description: "uses Python idioms",
+		Script:      "def run(args):\n    with open('x') as f:\n        return f.read()\n",
+	})
+	_, err := h.handleCreateTool(context.Background(), raw)
+	if err == nil {
+		t.Fatalf("expected compile error, got nil")
+	}
+	path := filepath.Join(dir, ".harness", "tools", "broken.md")
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("broken artifact must NOT exist on disk after compile-check failure, but stat says: %v", statErr)
 	}
 }
 

@@ -77,9 +77,15 @@ func createToolDefinition() tools.Definition {
 		Name: "harness_create_tool",
 		Description: "Create a new tool artifact in `.harness/tools/<name>.md` and hot-reload it. " +
 			"The new tool becomes callable in the very next agent step. Use this when the user asks " +
-			"for a capability the current toolset cannot satisfy. Tools are written as Starlark scripts " +
-			"with a `def run(args)` entrypoint and have access to all Starlark built-ins (http, fs, json, " +
-			"time, log, etc.). Tool definitions persist on disk across restarts.",
+			"for a capability the current toolset cannot satisfy. " +
+			"**Scripts are Starlark (a Python-subset), NOT Python.** No `with`, no f-strings, no list " +
+			"comprehensions with `if`. Use the Harness Starlark stdlib: `fs.read(path)`, " +
+			"`fs.write(path, content)`, `fs.append(path, content)`, `fs.exists(path)`, " +
+			"`http.get(url)`, `http.post(url, body)`, `json.encode(v)`, `json.decode(s)`, `time.now()`, " +
+			"`log(msg)`, `env(key)`, `re.match`, `re.find_all`, `re.replace`, `hash.sha256`, `base64.encode`. " +
+			"Tools must define `def run(args)` returning a string. Tool definitions persist on disk " +
+			"across restarts. The script is compile-checked before the file is written, so syntax " +
+			"errors are returned to you immediately and the bad artifact never lands on disk.",
 		Parameters: []tools.Parameter{
 			{Name: "name", Type: tools.TypeString, Required: true,
 				Description: "Tool name. Lowercase, digits, underscore, hyphen only (1-64 chars). Becomes both the file name and the tool's invocation name."},
@@ -172,6 +178,16 @@ func (h *Harness) handleCreateTool(_ context.Context, raw json.RawMessage) (stri
 		return "", fmt.Errorf("script must define a `def run(args)` entrypoint")
 	}
 
+	// Compile-check the Starlark script BEFORE writing the artifact to
+	// disk. Without this, syntactically broken scripts (e.g. Python
+	// idioms like `with open(...)` or f-strings) would land in
+	// .harness/tools/, then crash the harness with a fatal load error
+	// on every subsequent startup until manually deleted. The model
+	// gets a precise compile error instead, which it can fix and retry.
+	if _, cerr := scripting.NewToolHandler(h.engine, args.Name, args.Script); cerr != nil {
+		return "", fmt.Errorf("script does not compile (remember: this is Starlark, not Python — no `with`, no f-strings; use fs.read / fs.write / http.get / json.encode etc.): %w", cerr)
+	}
+
 	// Validate parameters_json if provided.
 	params := map[string]config.ParamConfig{}
 	if strings.TrimSpace(args.ParametersJSON) != "" && args.ParametersJSON != "{}" {
@@ -233,6 +249,13 @@ func (h *Harness) handleCreateHook(_ context.Context, raw json.RawMessage) (stri
 	}
 	if !strings.Contains(args.Script, "def handle") {
 		return "", fmt.Errorf("script must define a `def handle(event)` entrypoint")
+	}
+
+	// Compile-check the Starlark hook script BEFORE writing the artifact
+	// to disk. Same rationale as create_tool: a broken hook would brick
+	// every subsequent harness load until manually removed.
+	if _, cerr := scripting.NewConditionalHookHandler(h.engine, args.Name, args.When, args.Script); cerr != nil {
+		return "", fmt.Errorf("hook script does not compile (Starlark, not Python — use allow()/block(reason)/modify(...)): %w", cerr)
 	}
 
 	body := renderHookMarkdown(args.Name, args.Event, args.When, args.Priority, args.Script)
@@ -527,13 +550,49 @@ your own harness at runtime. You have four built-in meta-tools:
 
 When the user asks for a capability you don't have, prefer **creating a
 tool** over saying "I can't do that". The capability persists on disk
-(.harness/tools/<name>.md) and survives restarts. Tools have access to
-the full Starlark stdlib (http, fs, json, time, log, regex, hash, ...).
+(.harness/tools/<name>.md) and survives restarts.
+
+### CRITICAL — Scripts are Starlark, NOT Python
+
+Starlark is a Python-subset. These Python idioms DO NOT WORK and will
+fail compile-check (the harness rejects the tool before writing it):
+
+- ❌ ` + "`with open(path) as f: ...`" + ` — no ` + "`with`" + ` statement
+- ❌ ` + "`f\"hello {name}\"`" + ` — no f-strings; use ` + "`\"hello \" + name`" + `
+- ❌ ` + "`[x for x in items if cond]`" + ` — no ` + "`if`" + ` in comprehensions
+- ❌ ` + "`try: ... except: ...`" + ` — no exceptions; check return values
+- ❌ ` + "`import os`" + ` — no imports; built-ins are pre-bound
+
+Use the Harness Starlark stdlib instead:
+
+| Need | Use |
+|---|---|
+| Read a file | ` + "`fs.read(path)`" + ` |
+| Write a file | ` + "`fs.write(path, content)`" + ` |
+| Append to a file | ` + "`fs.append(path, content)`" + ` |
+| Check existence | ` + "`fs.exists(path)`" + ` |
+| List directory | ` + "`fs.list(path)`" + ` |
+| HTTP GET | ` + "`http.get(url, headers=..., timeout_seconds=...)`" + ` |
+| HTTP POST | ` + "`http.post(url, body=..., headers=...)`" + ` |
+| JSON encode | ` + "`json.encode(value)`" + ` |
+| JSON decode | ` + "`json.decode(string)`" + ` |
+| Current time | ` + "`time.now()`" + ` |
+| Log a message | ` + "`log(msg)`" + ` |
+| Env var | ` + "`env(\"KEY\")`" + ` |
+| Regex match | ` + "`re.match(pattern, text)`" + ` |
+| String concat | ` + "`a + b`" + ` (not f-string) |
+
+Example correct tool:
+
+` + "```" + `
+def run(args):
+    content = fs.read(args["path"])
+    return "file has " + str(len(content)) + " bytes"
+` + "```" + `
 
 Keep created tools small, focused, and well-described. The description
 field is what the model (you, on a future turn) will see when deciding
-whether to call the tool — write it like prompt engineering, not an
-implementation comment.
+whether to call the tool — write it like prompt engineering.
 `
 
 // augmentSystemPromptForSelfAugment appends the self-augmentation note
