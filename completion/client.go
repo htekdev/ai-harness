@@ -113,8 +113,13 @@ type ClientConfig struct {
 	APIKey string
 	// Model is the default model to use
 	Model string
-	// MaxRetries is the maximum number of retry attempts
+	// MaxRetries is the maximum number of retry attempts. Ignored when
+	// RetryPolicy is set; kept for backward compatibility.
 	MaxRetries int
+	// RetryPolicy fully configures retry behavior (max attempts, initial
+	// backoff, max backoff, multiplier). When nil, a policy is synthesized
+	// from MaxRetries with default backoff parameters.
+	RetryPolicy *RetryPolicy
 	// Timeout is the HTTP request timeout
 	Timeout time.Duration
 }
@@ -157,6 +162,19 @@ func NewClient(config ClientConfig) *Client {
 	if config.Model == "" {
 		config.Model = "gpt-4o"
 	}
+	if config.RetryPolicy == nil {
+		p := DefaultRetryPolicy()
+		p.MaxRetries = config.MaxRetries
+		config.RetryPolicy = &p
+	} else {
+		// Normalize zero-value backoff fields.
+		norm := config.RetryPolicy.withDefaults()
+		// Honor explicit MaxRetries on the policy (including 0 = no retries).
+		norm.MaxRetries = config.RetryPolicy.MaxRetries
+		config.RetryPolicy = &norm
+		// Mirror onto MaxRetries for legacy readers.
+		config.MaxRetries = norm.MaxRetries
+	}
 
 	return &Client{
 		config: config,
@@ -172,8 +190,8 @@ func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 	req = c.prepareRequest(req)
 
 	var lastErr error
-	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
-		if err := waitForRetry(ctx, attempt); err != nil {
+	for attempt := 0; attempt <= c.config.RetryPolicy.MaxRetries; attempt++ {
+		if err := c.waitForRetry(ctx, attempt); err != nil {
 			return nil, err
 		}
 
@@ -201,8 +219,8 @@ func (c *Client) CompleteStream(ctx context.Context, req Request) (<-chan Stream
 		lastErr  error
 	)
 
-	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
-		if err := waitForRetry(ctx, attempt); err != nil {
+	for attempt := 0; attempt <= c.config.RetryPolicy.MaxRetries; attempt++ {
+		if err := c.waitForRetry(ctx, attempt); err != nil {
 			return nil, err
 		}
 
@@ -234,12 +252,12 @@ func (c *Client) prepareRequest(req Request) Request {
 	return req
 }
 
-func waitForRetry(ctx context.Context, attempt int) error {
+func (c *Client) waitForRetry(ctx context.Context, attempt int) error {
 	if attempt == 0 {
 		return nil
 	}
 
-	backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+	backoff := c.config.RetryPolicy.Backoff(attempt)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

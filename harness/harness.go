@@ -111,11 +111,12 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 
 	client := completion.NewClient(completion.ClientConfig{
-		BaseURL:    cfg.BaseURL(),
-		APIKey:     apiKey,
-		Model:      cfg.Model.Name,
-		MaxRetries: 3,
-		Timeout:    60 * time.Second,
+		BaseURL:     cfg.BaseURL(),
+		APIKey:      apiKey,
+		Model:       cfg.Model.Name,
+		MaxRetries:  3,
+		Timeout:     60 * time.Second,
+		RetryPolicy: retryPolicyFromConfig(cfg.Model.Retry),
 	})
 
 	// Build model registry
@@ -138,11 +139,12 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 			mBaseURL = cfg.BaseURL()
 		}
 		mc := completion.NewClient(completion.ClientConfig{
-			BaseURL:    mBaseURL,
-			APIKey:     mAPIKey,
-			Model:      modelCfg.Name,
-			MaxRetries: 3,
-			Timeout:    60 * time.Second,
+			BaseURL:     mBaseURL,
+			APIKey:      mAPIKey,
+			Model:       modelCfg.Name,
+			MaxRetries:  3,
+			Timeout:     60 * time.Second,
+			RetryPolicy: retryPolicyFromConfig(modelCfg.Retry),
 		})
 		modelClients[modelCfg.Name] = mc
 	}

@@ -94,3 +94,39 @@ can rely on.
 - `harness/errs/errors_test.go` — `KindOf` / `IsRetriable` semantics
 - `harness/errs/retry_policy_test.go` — executable version of this
   example, run with `go test ./harness/errs/`
+
+## Declarative retry config (Phase 5.7)
+
+The pattern above is *caller-side* policy. For the completion client
+itself — which is the dominant retry surface in production — retry
+behavior is now fully configurable per model via the harness config:
+
+```yaml
+model:
+  name: gpt-4o
+  provider: openai
+  api_key_env: OPENAI_API_KEY
+  retry:
+    max_retries: 5           # default 3
+    initial_backoff_ms: 250  # default 1000
+    max_backoff_ms: 10000    # default 30000
+    multiplier: 2.0          # default 2.0
+
+models:
+  - name: claude-opus-4.6
+    provider: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    retry:
+      # Tighter budget for an expensive model.
+      max_retries: 1
+      initial_backoff_ms: 500
+```
+
+The completion client computes per-attempt backoff as
+`initial_backoff * multiplier^(attempt-1)`, clamped to `max_backoff`.
+Every model in the registry can carry its own policy; omitting the
+block falls back to the historical schedule (3 retries, 1s → 2s → 4s,
+30s cap).
+
+See `completion/retry.go` for the policy type and
+`completion/retry_test.go` for backoff math regression cases.
