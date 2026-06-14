@@ -89,6 +89,11 @@ type registration struct {
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]registration
+
+	// policyMu guards policy. It is intentionally separate from mu so a
+	// policy update never blocks tool execution and vice versa.
+	policyMu sync.RWMutex
+	policy   *Policy
 }
 
 // NewRegistry creates a new tool registry.
@@ -154,8 +159,23 @@ func (r *Registry) Replace(def Definition, handler Handler) error {
 	return nil
 }
 
-// Has reports whether a tool with the given name is registered.
+// Has reports whether a tool with the given name is registered AND permitted
+// by the active policy. A blocked tool reports false even when registered —
+// callers that need raw registry presence should use HasRegistered.
 func (r *Registry) Has(name string) bool {
+	if !r.allowed(name) {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, exists := r.tools[name]
+	return exists
+}
+
+// HasRegistered reports whether a tool with the given name is registered,
+// ignoring policy. Useful for reload/replace flows that need to inspect the
+// raw registry state.
+func (r *Registry) HasRegistered(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	_, exists := r.tools[name]
@@ -209,6 +229,20 @@ func (r *Registry) Execute(ctx context.Context, call Call) (result Result) {
 		}
 	}
 
+	// Policy enforcement happens AFTER the registry lookup so we can
+	// distinguish "unknown tool" from "policy denied". Both return
+	// IsError=true so the model sees a tool error and can adapt, but the
+	// span's status message preserves the distinction for audit.
+	if !r.allowed(call.Name) {
+		span.SetAttributes(attribute.String("tool.policy", "denied"))
+		return Result{
+			CallID:  call.ID,
+			Name:    call.Name,
+			Content: fmt.Sprintf("tool %q denied by policy", call.Name),
+			IsError: true,
+		}
+	}
+
 	output, err := reg.Handler(ctx, call.Arguments)
 	if err != nil {
 		span.RecordError(err)
@@ -228,8 +262,26 @@ func (r *Registry) Execute(ctx context.Context, call Call) (result Result) {
 	}
 }
 
-// List returns all registered tool definitions.
+// List returns all registered tool definitions that are permitted by the
+// active policy. Blocked tools are omitted so model callers (List ⇒ prompt)
+// never see capabilities they cannot invoke.
 func (r *Registry) List() []Definition {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	defs := make([]Definition, 0, len(r.tools))
+	for _, reg := range r.tools {
+		if !r.allowed(reg.Definition.Name) {
+			continue
+		}
+		defs = append(defs, reg.Definition)
+	}
+	return defs
+}
+
+// ListAll returns every registered tool definition regardless of policy.
+// Use for diagnostics, observability, or reload bookkeeping.
+func (r *Registry) ListAll() []Definition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -240,8 +292,12 @@ func (r *Registry) List() []Definition {
 	return defs
 }
 
-// Get returns a specific tool definition by name.
+// Get returns a specific tool definition by name, honoring the active
+// policy. Blocked tools return (Definition{}, false) even when registered.
 func (r *Registry) Get(name string) (Definition, bool) {
+	if !r.allowed(name) {
+		return Definition{}, false
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -252,13 +308,18 @@ func (r *Registry) Get(name string) (Definition, bool) {
 	return reg.Definition, true
 }
 
-// ToOpenAIFormat converts registered tools to the OpenAI function calling format.
+// ToOpenAIFormat converts policy-permitted tools to the OpenAI function
+// calling format. Tools blocked by the active policy are omitted so the
+// completion request never advertises a denied capability.
 func (r *Registry) ToOpenAIFormat() []map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	result := make([]map[string]any, 0, len(r.tools))
 	for _, reg := range r.tools {
+		if !r.allowed(reg.Definition.Name) {
+			continue
+		}
 		properties := make(map[string]any)
 		required := []string{}
 
