@@ -120,6 +120,15 @@ type ClientConfig struct {
 	// backoff, max backoff, multiplier). When nil, a policy is synthesized
 	// from MaxRetries with default backoff parameters.
 	RetryPolicy *RetryPolicy
+	// RateLimit declares per-model and global request-rate ceilings.
+	// When zero, rate limiting is disabled. When set, the materialized
+	// limiter is consulted before every outbound request (including
+	// retries) to prevent runaway token usage.
+	RateLimit RateLimitPolicy
+	// RateLimiter overrides the limiter built from RateLimit. Tests and
+	// advanced callers may inject a custom implementation. When non-nil,
+	// RateLimit is ignored.
+	RateLimiter RateLimiter
 	// Timeout is the HTTP request timeout
 	Timeout time.Duration
 }
@@ -128,6 +137,7 @@ type ClientConfig struct {
 type Client struct {
 	config     ClientConfig
 	httpClient *http.Client
+	limiter    RateLimiter
 }
 
 type streamResponse struct {
@@ -176,12 +186,27 @@ func NewClient(config ClientConfig) *Client {
 		config.MaxRetries = norm.MaxRetries
 	}
 
+	limiter := config.RateLimiter
+	if limiter == nil {
+		limiter = NewRateLimiter(config.RateLimit)
+	}
+
 	return &Client{
 		config: config,
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
+		limiter: limiter,
 	}
+}
+
+// waitForRateLimit blocks until the limiter (if any) admits a request for
+// the given model. Returns ctx.Err() on cancellation.
+func (c *Client) waitForRateLimit(ctx context.Context, model string) error {
+	if c.limiter == nil {
+		return nil
+	}
+	return c.limiter.Wait(ctx, model)
 }
 
 // Complete sends a completion request and returns the response.
@@ -197,6 +222,9 @@ func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 	var lastErr error
 	for attempt := 0; attempt <= c.config.RetryPolicy.MaxRetries; attempt++ {
 		if err := c.waitForRetry(ctx, attempt); err != nil {
+			return nil, err
+		}
+		if err := c.waitForRateLimit(ctx, req.Model); err != nil {
 			return nil, err
 		}
 
@@ -231,6 +259,9 @@ func (c *Client) CompleteStream(ctx context.Context, req Request) (<-chan Stream
 
 	for attempt := 0; attempt <= c.config.RetryPolicy.MaxRetries; attempt++ {
 		if err := c.waitForRetry(ctx, attempt); err != nil {
+			return nil, err
+		}
+		if err := c.waitForRateLimit(ctx, req.Model); err != nil {
 			return nil, err
 		}
 
