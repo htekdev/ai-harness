@@ -56,8 +56,14 @@ Three things to notice:
 
 - **The frontmatter is the contract.** `parameters` is the schema the model
   sees and the harness validates against. `script` is the implementation.
-- **The body is documentation.** Reviewers, teammates, and you-in-six-months
-  read it to understand *why* the tool exists. The model never sees it.
+  The harness parses *only* the YAML frontmatter for executable shape —
+  fenced code blocks in the body are never extracted as Starlark.
+- **The body is composed context.** The markdown after the closing `---` is
+  loaded into the artifact's `Context` and composed into the system prompt
+  alongside other active artifacts (see [Harness as Code](./harness-as-code.md)).
+  Treat it as model-visible prose: explain *why* the tool exists, when to
+  reach for it, and any usage caveats. Reviewers, teammates, and the model
+  all read it.
 - **Naming matters.** This file is `run_command.md` — a *named wrapper*
   around the raw `exec.run` built-in. Hooks can distinguish "agent asked
   for `run_command`" (allowed) from "agent tried to call `exec` directly"
