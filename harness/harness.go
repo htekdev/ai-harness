@@ -118,6 +118,17 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 		}
 	}
 
+	if !cfg.ToolsPolicy.IsEmpty() {
+		policy := &tools.Policy{
+			Mode:  tools.PolicyMode(cfg.ToolsPolicy.Mode),
+			Allow: cfg.ToolsPolicy.Allow,
+			Deny:  cfg.ToolsPolicy.Deny,
+		}
+		if err := registry.SetPolicy(policy); err != nil {
+			return nil, fmt.Errorf("apply tools_policy: %w", err)
+		}
+	}
+
 	hookSystem := hooks.NewSystem()
 	for _, hookCfg := range cfg.Hooks {
 		var handler hooks.Handler

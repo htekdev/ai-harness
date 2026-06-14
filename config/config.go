@@ -14,14 +14,15 @@ import (
 
 // Config is the top-level harness configuration.
 type Config struct {
-	Model      ModelConfig        `yaml:"model" json:"model"`
-	Models     []ModelConfig      `yaml:"models,omitempty" json:"models,omitempty"`
-	Context    ContextConfig      `yaml:"context" json:"context"`
-	Tools      []ToolConfig       `yaml:"tools" json:"tools"`
-	Hooks      []HookConfig       `yaml:"hooks" json:"hooks"`
-	Delegation DelegationConfig   `yaml:"delegation,omitempty" json:"delegation,omitempty"`
-	Meta       *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
-	Serve      *ServeConfig       `yaml:"serve,omitempty" json:"serve,omitempty"`
+	Model       ModelConfig        `yaml:"model" json:"model"`
+	Models      []ModelConfig      `yaml:"models,omitempty" json:"models,omitempty"`
+	Context     ContextConfig      `yaml:"context" json:"context"`
+	Tools       []ToolConfig       `yaml:"tools" json:"tools"`
+	ToolsPolicy *ToolsPolicyConfig `yaml:"tools_policy,omitempty" json:"tools_policy,omitempty"`
+	Hooks       []HookConfig       `yaml:"hooks" json:"hooks"`
+	Delegation  DelegationConfig   `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+	Meta        *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
+	Serve       *ServeConfig       `yaml:"serve,omitempty" json:"serve,omitempty"`
 }
 
 // MetaBuiltinConfig configures the meta.* Starlark built-ins.
@@ -65,6 +66,22 @@ type ContextConfig struct {
 	MaxHistory   int    `yaml:"max_history" json:"max_history"`
 	MaxTokens    int    `yaml:"max_tokens" json:"max_tokens"`
 	SystemPrompt string `yaml:"system_prompt" json:"system_prompt"`
+}
+
+// ToolsPolicyConfig declares per-session governance over which registered
+// tools the agent may invoke. Patterns support shell-style globs (e.g.
+// "fs.*"). Mode is optional — "allowlist" or "denylist"; when omitted it is
+// inferred from the lists (non-empty allow ⇒ allowlist, otherwise
+// denylist). Deny entries always win over Allow.
+type ToolsPolicyConfig struct {
+	Mode  string   `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Allow []string `yaml:"allow,omitempty" json:"allow,omitempty"`
+	Deny  []string `yaml:"deny,omitempty" json:"deny,omitempty"`
+}
+
+// IsEmpty reports whether the config carries no governance rules.
+func (t *ToolsPolicyConfig) IsEmpty() bool {
+	return t == nil || (len(t.Allow) == 0 && len(t.Deny) == 0 && t.Mode == "")
 }
 
 // ToolConfig defines a tool in configuration.
@@ -197,6 +214,23 @@ func (c *Config) Validate() error {
 	for i, hookCfg := range c.Hooks {
 		if !hooks.IsValidEvent(hookCfg.Event) {
 			issues = append(issues, fmt.Sprintf("hooks[%d].event %q is invalid", i, hookCfg.Event))
+		}
+	}
+
+	if !c.ToolsPolicy.IsEmpty() {
+		mode := strings.ToLower(strings.TrimSpace(c.ToolsPolicy.Mode))
+		if mode != "" && mode != "allowlist" && mode != "denylist" {
+			issues = append(issues, fmt.Sprintf("tools_policy.mode %q must be allowlist|denylist", c.ToolsPolicy.Mode))
+		}
+		for i, p := range c.ToolsPolicy.Allow {
+			if strings.TrimSpace(p) == "" {
+				issues = append(issues, fmt.Sprintf("tools_policy.allow[%d] is empty", i))
+			}
+		}
+		for i, p := range c.ToolsPolicy.Deny {
+			if strings.TrimSpace(p) == "" {
+				issues = append(issues, fmt.Sprintf("tools_policy.deny[%d] is empty", i))
+			}
 		}
 	}
 
