@@ -24,7 +24,15 @@ const (
 	EventCompletionPost Event = "completion.post"
 	EventDelegatePre    Event = "delegation.pre"
 	EventDelegatePost   Event = "delegation.post"
-	EventError          Event = "error"
+	// EventDelegatePostVerify fires after EventDelegatePost when a
+	// delegation specifies a `verify:` block (or any registered hook
+	// listens on this event). Hooks may inspect the delegation Result
+	// and return ActionBlock with a Reason to mark the delegation as
+	// failing verification — the Delegator will then re-prompt the
+	// same delegate (Ralph loop) up to MaxVerifyRetries with the
+	// failure reason injected. See issue #103.
+	EventDelegatePostVerify Event = "delegation.post_verify"
+	EventError              Event = "error"
 )
 
 const CustomEventPrefix = "custom."
@@ -89,6 +97,7 @@ func ValidEvents() []Event {
 		EventCompletionPost,
 		EventDelegatePre,
 		EventDelegatePost,
+		EventDelegatePostVerify,
 		EventError,
 	}
 }

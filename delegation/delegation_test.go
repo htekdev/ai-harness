@@ -13,8 +13,8 @@ func TestDelegateToolDefinition(t *testing.T) {
 	if def.Name != "delegate" {
 		t.Errorf("expected name 'delegate', got %q", def.Name)
 	}
-	if len(def.Parameters) != 6 {
-		t.Errorf("expected 6 parameters, got %d", len(def.Parameters))
+	if len(def.Parameters) != 8 {
+		t.Errorf("expected 8 parameters, got %d", len(def.Parameters))
 	}
 }
 

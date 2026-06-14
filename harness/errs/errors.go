@@ -46,6 +46,13 @@ const (
 	// envelope). Surfacing this as a typed error lets the harness fail
 	// fast pre-flight instead of bouncing off a provider 400.
 	KindInvalidConversation
+	// KindVerificationFailed: a delegation/tool/hook claim verification
+	// returned `verified: false` (and the retry budget was exhausted).
+	// Issue #103: deterministic anti-hallucination primitive — when an
+	// agent claims it did work but a deterministic Starlark check against
+	// real state disagrees, the harness surfaces that as this kind so
+	// hooks/retries/operator dashboards can react explicitly.
+	KindVerificationFailed
 )
 
 // String returns the canonical lower-case kind name. Stable for log/trace attrs.
@@ -65,6 +72,8 @@ func (k Kind) String() string {
 		return "persistence"
 	case KindInvalidConversation:
 		return "invalid_conversation"
+	case KindVerificationFailed:
+		return "verification_failed"
 	default:
 		return "unknown"
 	}
