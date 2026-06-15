@@ -77,12 +77,13 @@ The harness then takes over.
 ## The two delegation events
 
 Delegation participates in the same hook lifecycle as every other operation.
-Two events bracket the call:
+Three events bracket and verify the call:
 
-| Event              | When it fires                                         | Typical use                                                   |
-|--------------------|-------------------------------------------------------|---------------------------------------------------------------|
-| `delegation.pre`   | After argument validation, before the child runs      | Deny dangerous agents, scrub secrets from the task, cap depth |
-| `delegation.post`  | After the child returns, before parent sees the result | Redact, summarise, attach metrics, gate on the result         |
+| Event                     | When it fires                                          | Typical use                                                      |
+|---------------------------|--------------------------------------------------------|------------------------------------------------------------------|
+| `delegation.pre`          | After argument validation, before the child runs       | Deny dangerous agents, scrub secrets from the task, cap depth    |
+| `delegation.post_verify`  | After child completion, before `delegation.post`       | Deterministically verify claims, trigger Ralph-loop retries      |
+| `delegation.post`         | After verify passes, before parent sees the final result | Redact, summarise, attach metrics, gate on the accepted result |
 
 A `delegation.pre` hook can `block(reason)` the call entirely, `modify` the
 request (rewrite the task, swap the agent, drop a tool from the bundle), or
@@ -90,13 +91,11 @@ request (rewrite the task, swap the agent, drop a tool from the bundle), or
 learned in [hooks](./hooks.md) — the contract does not change just because
 the operation is "spawn a whole new agent."
 
-> **Coming primitive:** [`delegation.post_verify`][i103] adds a third event
-> that fires *between* the child's response and `delegation.post`. It runs
-> verification hooks declared on the delegate's artifacts, returns
-> `errs.KindVerificationFailed` on a `block`, and re-prompts up to a
-> configured retry budget. See **[Verification](./verification.md)** for
-> the full contract; the page you are reading now describes the lifecycle
-> verification slots into.
+`delegation.post_verify` runs *between* the child's response and
+`delegation.post`. It lets hooks deterministically assert real side effects,
+returns `errs.KindVerificationFailed` on `block`, and re-prompts up to the
+configured retry budget. See **[Verification](./verification.md)** for the
+full contract.
 
 [i103]: https://github.com/htekdev/ai-harness/issues/103
 [i104]: https://github.com/htekdev/ai-harness/issues/104

@@ -53,9 +53,12 @@ type MetaBuiltinConfig struct {
 
 // DelegationConfig defines delegation behavior.
 type DelegationConfig struct {
-	MaxDepth           int   `yaml:"max_depth,omitempty" json:"max_depth,omitempty"`
-	MaxConcurrent      int   `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
-	IterationsPerDepth []int `yaml:"iterations_per_depth,omitempty" json:"iterations_per_depth,omitempty"`
+	MaxDepth           int                 `yaml:"max_depth,omitempty" json:"max_depth,omitempty"`
+	MaxConcurrent      int                 `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
+	IterationsPerDepth []int               `yaml:"iterations_per_depth,omitempty" json:"iterations_per_depth,omitempty"`
+	Verify             string              `yaml:"verify,omitempty" json:"verify,omitempty"`
+	MaxVerifyRetries   int                 `yaml:"max_verify_retries,omitempty" json:"max_verify_retries,omitempty"`
+	VerifyPolicy       *VerifyPolicyConfig `yaml:"verify_policy,omitempty" json:"verify_policy,omitempty"`
 }
 
 // ModelConfig defines the LLM provider and parameters.
@@ -103,11 +106,13 @@ func (t *ToolsPolicyConfig) IsEmpty() bool {
 
 // ToolConfig defines a tool in configuration.
 type ToolConfig struct {
-	Name        string                 `yaml:"name" json:"name"`
-	Description string                 `yaml:"description" json:"description"`
-	Parameters  map[string]ParamConfig `yaml:"parameters" json:"parameters"`
-	TimeoutMS   int                    `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
-	Script      string                 `yaml:"script,omitempty" json:"script,omitempty"`
+	Name         string                 `yaml:"name" json:"name"`
+	Description  string                 `yaml:"description" json:"description"`
+	Parameters   map[string]ParamConfig `yaml:"parameters" json:"parameters"`
+	TimeoutMS    int                    `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
+	Script       string                 `yaml:"script,omitempty" json:"script,omitempty"`
+	Verify       string                 `yaml:"verify,omitempty" json:"verify,omitempty"`
+	VerifyPolicy *VerifyPolicyConfig    `yaml:"verify_policy,omitempty" json:"verify_policy,omitempty"`
 }
 
 // ParamConfig defines a tool parameter in configuration.
@@ -119,11 +124,21 @@ type ParamConfig struct {
 
 // HookConfig defines a hook registration in configuration.
 type HookConfig struct {
-	Event    string `yaml:"event" json:"event"`
-	Handler  string `yaml:"handler" json:"handler"`
-	Script   string `yaml:"script,omitempty" json:"script,omitempty"`
-	When     string `yaml:"when,omitempty" json:"when,omitempty"`
-	Priority int    `yaml:"priority,omitempty" json:"priority,omitempty"`
+	Event        string              `yaml:"event" json:"event"`
+	Handler      string              `yaml:"handler" json:"handler"`
+	Script       string              `yaml:"script,omitempty" json:"script,omitempty"`
+	Verify       string              `yaml:"verify,omitempty" json:"verify,omitempty"`
+	When         string              `yaml:"when,omitempty" json:"when,omitempty"`
+	Priority     int                 `yaml:"priority,omitempty" json:"priority,omitempty"`
+	VerifyPolicy *VerifyPolicyConfig `yaml:"verify_policy,omitempty" json:"verify_policy,omitempty"`
+}
+
+// VerifyPolicyConfig controls verification retry behavior for artifacts that
+// declare a verify script.
+type VerifyPolicyConfig struct {
+	MaxRetries        int    `yaml:"max_retries,omitempty" json:"max_retries,omitempty"`
+	OnExhausted       string `yaml:"on_exhausted,omitempty" json:"on_exhausted,omitempty"`
+	TimeoutPerAttempt string `yaml:"timeout_per_attempt,omitempty" json:"timeout_per_attempt,omitempty"`
 }
 
 // Load reads and parses a YAML configuration file.
