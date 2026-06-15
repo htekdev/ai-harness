@@ -172,15 +172,15 @@ func TestSetLogger_SyncsSlogDefault(t *testing.T) {
 // Logger() also calls slog.SetDefault so the very first Logger() call (before
 // any SetLogger) wires up the stdlib default.
 func TestLogger_LazySyncsSlogDefault(t *testing.T) {
+	orig := Logger()
 	origDefault := slog.Default()
 	t.Cleanup(func() {
-		SetLogger(nil)
+		SetLogger(orig)
 		slog.SetDefault(origDefault)
 	})
 
-	// Reset the global so the next Logger() call rebuilds it.
+	// Reset the global so the next Logger() call triggers a lazy rebuild.
 	SetLogger(nil)
-	slog.SetDefault(slog.Default()) // reset to stdlib default
 
 	l := Logger()
 	if l == nil {
