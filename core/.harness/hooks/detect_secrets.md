@@ -1,25 +1,58 @@
 ---
-event: tool.post
-priority: 50
-when: "tool.name == 'write_file' and (string.contains(result.get('content', ''), 'BEGIN RSA PRIVATE KEY') or string.contains(result.get('content', ''), 'api_key') or string.contains(result.get('content', ''), 'password'))"
+event: tool.pre
+priority: 20
+when: 'payload["name"] == "write_file"'
 script: |
-  def run(event, payload):
-      path = payload.get("tool", {}).get("args", {}).get("path", "")
-      content = payload.get("tool", {}).get("args", {}).get("content", "")
-      
-      # Check for common secret patterns
-      has_private_key = "BEGIN RSA PRIVATE KEY" in content or "BEGIN PRIVATE KEY" in content
-      has_api_key = "api_key" in content.lower() or "apikey" in content.lower()
-      has_password = "password" in content.lower()
-      
-      if has_private_key or has_api_key or has_password:
-          log("WARNING: Potential secret detected in file: " + path)
-          return {
-              "warn": True,
-              "message": "File may contain secrets or credentials. Ensure sensitive data is properly protected."
-          }
-      
-      return {"success": True}
+  def handle(event, payload):
+      args = payload.get("arguments", {})
+      path = args.get("path", "")
+      content = args.get("content", "")
+      lower = content.lower()
+
+      markers = [
+          "begin rsa private key",
+          "begin private key",
+          "begin openssh private key",
+          "aws_secret_access_key",
+          "api_key",
+          "apikey",
+          "password=",
+          "secret=",
+      ]
+      for marker in markers:
+          if marker in lower:
+              log("BLOCKED write_file: secret-like marker '" + marker +
+                  "' detected in content for path " + path)
+              return {
+                  "action": "block",
+                  "reason": "refusing to write apparent secret (" + marker +
+                            ") to " + path + "; redact before retrying",
+              }
+      return {"action": "allow"}
 ---
 
-Post-execution hook that detects potential secrets or credentials in files after they are written. Warns when patterns like private keys, API keys, or passwords are detected in file content.
+# detect_secrets
+
+A `tool.pre` governance hook that scans `write_file` content for common
+secret patterns (private keys, API keys, AWS credentials, inline
+passwords) and blocks the write before the file is created. The model
+sees the block reason and can recover by redacting and retrying.
+
+## Why `tool.pre` instead of `tool.post`?
+
+Once the file is on disk, the secret has already escaped the harness.
+Inspecting at `tool.pre` lets the harness refuse the action — keeping the
+governance contract architectural rather than after-the-fact.
+
+## Hook contract reminders
+
+- Function name is **`handle(event, payload)`** — not `run`.
+- For `tool.pre`, `payload` is **flat**: `{"id", "name", "arguments"}`.
+- Returns must be one of `{"action": "allow"}`, `{"action": "block",
+  "reason": "..."}`, or `{"action": "modify", "payload": {...}}`. Other
+  shapes are silently treated as **allow**.
+
+Tune the `markers` list for your environment (regex-grade patterns can
+live in a follow-up hook that uses `re.search`). See
+[`docs/src/guides/writing-a-hook.md`](../../../docs/src/guides/writing-a-hook.md)
+for the full tutorial.

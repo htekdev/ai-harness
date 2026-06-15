@@ -178,18 +178,19 @@ themselves or asks to be greeted.
 Hook artifacts use the same shape as tool artifacts: YAML frontmatter
 with `event:`, `priority:`, an optional `when:` predicate, and a
 `script:` literal block. The hook function signature is
-`run(event, payload)`.
+`handle(event, payload)` — and the `tool.pre` payload is **flat**
+(`{"id", "name", "arguments"}`, no `payload["tool"]` wrapper).
 
 ```markdown
 ---
 event: tool.pre
 priority: 1
 script: |
-  def run(event, payload):
-      tool_name = payload.get("tool", {}).get("name", "")
-      args = payload.get("tool", {}).get("args", {})
+  def handle(event, payload):
+      tool_name = payload.get("name", "")
+      args = payload.get("arguments", {})
       log("tool.pre " + tool_name + " args=" + str(args))
-      return {"success": True}
+      return {"action": "allow"}
 ---
 
 Audit hook — logs every tool call before it runs so the operator has a
@@ -243,6 +244,14 @@ and the model return its greeting:
 tool.pre greet args={"name": "Hector"}
 Hello, Hector! Welcome to AI Harness.
 ```
+
+> **Hook contract recap.** Three things are non-negotiable: the function
+> is named `handle`, not `run`; the `tool.pre` payload is flat with no
+> `payload["tool"]` wrapper; and the return value must be a dict with an
+> `"action"` key (`allow` / `block` / `modify`) or one of the helper
+> builtins (`allow()`, `block(reason=...)`, `modify(payload=...)`). Any
+> other shape is silently treated as `allow`. See
+> [Writing a Hook](./guides/writing-a-hook.md) for the full tutorial.
 
 ---
 
