@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	mrand "math/rand/v2"
 	"net/http"
@@ -389,7 +390,7 @@ func builtinLog(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kw
 	if err := starlark.UnpackArgs("log", args, kwargs, "msg", &msg); err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(os.Stderr, "[script] %s\n", msg)
+	slog.Default().Info(msg, "component", "script")
 	return starlark.None, nil
 }
 

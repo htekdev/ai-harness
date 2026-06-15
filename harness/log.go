@@ -52,6 +52,7 @@ func Logger() *slog.Logger {
 			built, _ = NewLogger("text", "info", os.Stderr)
 		}
 		globalLogger = built
+		slog.SetDefault(built)
 	}
 	return globalLogger
 }
@@ -59,10 +60,18 @@ func Logger() *slog.Logger {
 // SetLogger installs the process-wide logger. Used by the CLI after parsing
 // --log-level / --log-format flags. Passing nil resets to the env-derived
 // default on the next Logger() call.
+//
+// SetLogger also calls slog.SetDefault(l) so packages that hold a reference to
+// slog.Default() (agent, delegation, evals, scripting) automatically pick up
+// the configured handler without needing to import the harness package
+// directly — which would create an import cycle.
 func SetLogger(l *slog.Logger) {
 	loggerMu.Lock()
 	defer loggerMu.Unlock()
 	globalLogger = l
+	if l != nil {
+		slog.SetDefault(l)
+	}
 }
 
 // NewLogger constructs a slog.Logger with the requested format and level,
