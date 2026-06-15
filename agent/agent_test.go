@@ -12,10 +12,15 @@ import (
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
 	"github.com/htekdev/ai-harness/hooks"
+	"github.com/htekdev/ai-harness/scripting"
 	"github.com/htekdev/ai-harness/tools"
 )
 
 func setupTestAgent(handler http.HandlerFunc) *Agent {
+	return setupTestAgentWithOptions(handler, Options{})
+}
+
+func setupTestAgentWithOptions(handler http.HandlerFunc, opts Options) *Agent {
 	server := httptest.NewServer(handler)
 
 	client := completion.NewClient(completion.ClientConfig{
@@ -37,7 +42,10 @@ func setupTestAgent(handler http.HandlerFunc) *Agent {
 
 	ctxMgr := agentctx.NewManager(agentctx.Config{SystemPrompt: "You are a test assistant."})
 
-	return New(Options{Client: client, Tools: registry, Context: ctxMgr})
+	opts.Client = client
+	opts.Tools = registry
+	opts.Context = ctxMgr
+	return New(opts)
 }
 
 func TestRunSimpleResponse(t *testing.T) {
@@ -142,6 +150,141 @@ func TestRunMaxIterationsLimit(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "max tool iterations reached") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunAgentStopBlocksThenAllows(t *testing.T) {
+	callCount := 0
+	agent := setupTestAgentWithOptions(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		_ = json.NewEncoder(w).Encode(completion.Response{Choices: []completion.Choice{{
+			Message:      completion.Message{Role: completion.RoleAssistant, Content: "attempt"},
+			FinishReason: "stop",
+		}}})
+	}, Options{ExitPolicyMode: "hook"})
+
+	stopCount := 0
+	agent.Hooks().Register(hooks.Registration{
+		Name:  "stop-controller",
+		Event: hooks.EventAgentStop,
+		Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
+			stopCount++
+			if stopCount <= 3 {
+				return hooks.Result{Action: hooks.ActionBlock, Reason: "keep going"}
+			}
+			return hooks.Result{Action: hooks.ActionContinue}
+		},
+	})
+
+	result, err := agent.Run(context.Background(), "run")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "attempt" {
+		t.Fatalf("unexpected response: %q", result.Response)
+	}
+	if callCount != 4 {
+		t.Fatalf("expected 4 model calls, got %d", callCount)
+	}
+}
+
+func TestRunAgentStopAlwaysBlockHonorsMaxIterations(t *testing.T) {
+	callCount := 0
+	agent := setupTestAgentWithOptions(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		_ = json.NewEncoder(w).Encode(completion.Response{Choices: []completion.Choice{{
+			Message:      completion.Message{Role: completion.RoleAssistant, Content: "attempt"},
+			FinishReason: "stop",
+		}}})
+	}, Options{MaxToolIterations: 3, ExitPolicyMode: "hook"})
+
+	agent.Hooks().Register(hooks.Registration{
+		Name:  "always-block",
+		Event: hooks.EventAgentStop,
+		Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
+			return hooks.Result{Action: hooks.ActionBlock, Reason: "not yet"}
+		},
+	})
+
+	_, err := agent.Run(context.Background(), "run")
+	if err == nil {
+		t.Fatal("expected max-iterations error")
+	}
+	if !strings.Contains(err.Error(), "max tool iterations reached") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount != 3 {
+		t.Fatalf("expected 3 model calls, got %d", callCount)
+	}
+}
+
+func TestRunDoneToolWithVerificationGateEndToEnd(t *testing.T) {
+	callCount := 0
+	agent := setupTestAgentWithOptions(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var resp completion.Response
+		if callCount == 1 {
+			resp = completion.Response{Choices: []completion.Choice{{
+				Message: completion.Message{Role: completion.RoleAssistant, ToolCalls: []completion.ToolCall{{
+					ID:       "call_done",
+					Type:     "function",
+					Function: completion.FunctionCall{Name: "done", Arguments: `{"summary":"completed","claims":[{"type":"file","path":"README.md"}]}`},
+				}}},
+				FinishReason: "tool_calls",
+			}}}
+		} else {
+			resp = completion.Response{Choices: []completion.Choice{{
+				Message:      completion.Message{Role: completion.RoleAssistant, Content: "all done"},
+				FinishReason: "stop",
+			}}}
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}, Options{ExitPolicyMode: "hook"})
+
+	_ = agent.Tools().Register(tools.Definition{
+		Name:        "done",
+		Description: "Signal completion",
+		Parameters: []tools.Parameter{
+			{Name: "summary", Type: tools.TypeString, Required: false},
+			{Name: "claims", Type: tools.TypeArray, Required: false},
+		},
+	}, func(ctx context.Context, args json.RawMessage) (string, error) {
+		var in map[string]any
+		_ = json.Unmarshal(args, &in)
+		scripting.SetTurnState(ctx, scripting.TurnStateAgentDoneFlagKey, true)
+		scripting.SetTurnState(ctx, scripting.TurnStateAgentDoneSummaryKey, in["summary"])
+		scripting.SetTurnState(ctx, scripting.TurnStateAgentDoneClaimsKey, in["claims"])
+		scripting.SetTurnState(ctx, "agent.verification_result", map[string]any{"ok": true, "reason": ""})
+		return `{"acknowledged":true}`, nil
+	})
+
+	agent.Hooks().Register(hooks.Registration{
+		Name:  "done-verify-gate",
+		Event: hooks.EventAgentStop,
+		Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
+			state, ok := scripting.TurnStateValues(ctx)
+			if !ok {
+				return hooks.Result{Action: hooks.ActionBlock, Reason: "missing turn state"}
+			}
+			done, _ := state[scripting.TurnStateAgentDoneFlagKey].(bool)
+			if !done {
+				return hooks.Result{Action: hooks.ActionBlock, Reason: "call done first"}
+			}
+			verify, _ := state["agent.verification_result"].(map[string]any)
+			okVerified, _ := verify["ok"].(bool)
+			if !okVerified {
+				return hooks.Result{Action: hooks.ActionBlock, Reason: "verification failed"}
+			}
+			return hooks.Result{Action: hooks.ActionContinue}
+		},
+	})
+
+	result, err := agent.Run(context.Background(), "complete task")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "all done" {
+		t.Fatalf("unexpected response: %q", result.Response)
 	}
 }
 

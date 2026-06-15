@@ -14,6 +14,7 @@
 - [Delegation](./concepts/delegation.md)
 - [Governance & Policy](./concepts/governance.md)
 - [Verification](./concepts/verification.md)
+- [Exit Policy](./concepts/exit-policy.md)
 
 # Guides
 

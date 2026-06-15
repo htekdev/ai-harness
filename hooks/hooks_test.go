@@ -195,8 +195,8 @@ func TestHandlersFor(t *testing.T) {
 }
 
 func TestValidEventsIncludesDelegateHooks(t *testing.T) {
-	if !IsValidEvent(string(EventDelegatePre)) || !IsValidEvent(string(EventDelegatePost)) {
-		t.Fatalf("delegate events should be valid: %v", ValidEvents())
+	if !IsValidEvent(string(EventDelegatePre)) || !IsValidEvent(string(EventDelegatePost)) || !IsValidEvent(string(EventAgentStop)) {
+		t.Fatalf("delegate/agent-stop events should be valid: %v", ValidEvents())
 	}
 }
 

@@ -17,6 +17,7 @@ type Config struct {
 	Model       ModelConfig        `yaml:"model" json:"model"`
 	Models      []ModelConfig      `yaml:"models,omitempty" json:"models,omitempty"`
 	Context     ContextConfig      `yaml:"context" json:"context"`
+	ExitPolicy  ExitPolicyConfig   `yaml:"exit_policy,omitempty" json:"exit_policy,omitempty"`
 	Tools       []ToolConfig       `yaml:"tools" json:"tools"`
 	ToolsPolicy *ToolsPolicyConfig `yaml:"tools_policy,omitempty" json:"tools_policy,omitempty"`
 	Hooks       []HookConfig       `yaml:"hooks" json:"hooks"`
@@ -56,6 +57,14 @@ type DelegationConfig struct {
 	MaxDepth           int   `yaml:"max_depth,omitempty" json:"max_depth,omitempty"`
 	MaxConcurrent      int   `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
 	IterationsPerDepth []int `yaml:"iterations_per_depth,omitempty" json:"iterations_per_depth,omitempty"`
+}
+
+// ExitPolicyConfig defines loop-exit behavior for natural model stops.
+type ExitPolicyConfig struct {
+	Mode            string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	MaxIterations   int    `yaml:"max_iterations,omitempty" json:"max_iterations,omitempty"`
+	OnMaxIterations string `yaml:"on_max_iterations,omitempty" json:"on_max_iterations,omitempty"`
+	StopHookTimeout string `yaml:"stop_hook_timeout,omitempty" json:"stop_hook_timeout,omitempty"`
 }
 
 // ModelConfig defines the LLM provider and parameters.
@@ -187,6 +196,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Context.MaxTokens == 0 {
 		cfg.Context.MaxTokens = 128000
 	}
+	if strings.TrimSpace(cfg.ExitPolicy.Mode) == "" {
+		cfg.ExitPolicy.Mode = "natural"
+	}
+	if strings.TrimSpace(cfg.ExitPolicy.OnMaxIterations) == "" {
+		cfg.ExitPolicy.OnMaxIterations = "error"
+	}
 }
 
 // Validate ensures the configuration is internally consistent.
@@ -232,6 +247,20 @@ func (c *Config) Validate() error {
 		if !hooks.IsValidEvent(hookCfg.Event) {
 			issues = append(issues, fmt.Sprintf("hooks[%d].event %q is invalid", i, hookCfg.Event))
 		}
+	}
+
+	switch mode := strings.TrimSpace(c.ExitPolicy.Mode); mode {
+	case "", "natural", "done_tool", "hook", "hybrid":
+	default:
+		issues = append(issues, fmt.Sprintf("exit_policy.mode %q must be natural|done_tool|hook|hybrid", c.ExitPolicy.Mode))
+	}
+	if c.ExitPolicy.MaxIterations < 0 {
+		issues = append(issues, "exit_policy.max_iterations must be >= 0")
+	}
+	switch mode := strings.TrimSpace(c.ExitPolicy.OnMaxIterations); mode {
+	case "", "error", "warn_and_exit", "continue_with_warning":
+	default:
+		issues = append(issues, fmt.Sprintf("exit_policy.on_max_iterations %q must be error|warn_and_exit|continue_with_warning", c.ExitPolicy.OnMaxIterations))
 	}
 
 	if !c.ToolsPolicy.IsEmpty() {

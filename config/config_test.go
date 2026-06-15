@@ -21,6 +21,11 @@ context:
   max_tokens: 200000
   system_prompt: "You are a coding assistant."
 
+exit_policy:
+  mode: hook
+  max_iterations: 42
+  on_max_iterations: error
+
 tools:
   - name: read_file
     description: Read a file
@@ -56,6 +61,9 @@ hooks:
 	if cfg.Context.SystemPrompt != "You are a coding assistant." {
 		t.Fatalf("unexpected system prompt: %s", cfg.Context.SystemPrompt)
 	}
+	if cfg.ExitPolicy.Mode != "hook" || cfg.ExitPolicy.MaxIterations != 42 || cfg.ExitPolicy.OnMaxIterations != "error" {
+		t.Fatalf("unexpected exit_policy: %+v", cfg.ExitPolicy)
+	}
 	if len(cfg.Tools) != 1 || cfg.Tools[0].Name != "read_file" {
 		t.Fatalf("unexpected tools: %+v", cfg.Tools)
 	}
@@ -89,6 +97,9 @@ func TestParseDefaults(t *testing.T) {
 	}
 	if cfg.Context.MaxHistory != 50 {
 		t.Fatalf("expected default max_history 50, got %d", cfg.Context.MaxHistory)
+	}
+	if cfg.ExitPolicy.Mode != "natural" || cfg.ExitPolicy.OnMaxIterations != "error" {
+		t.Fatalf("unexpected exit_policy defaults: %+v", cfg.ExitPolicy)
 	}
 }
 
@@ -171,13 +182,18 @@ func TestValidateFailures(t *testing.T) {
 		Model: ModelConfig{Name: "", MaxTokens: 0, Temperature: 3},
 		Tools: []ToolConfig{{Name: "dup", TimeoutMS: -1}, {Name: "dup"}, {Name: "   "}},
 		Hooks: []HookConfig{{Event: "not-real", Handler: "noop"}},
+		ExitPolicy: ExitPolicyConfig{
+			Mode:            "bad_mode",
+			MaxIterations:   -1,
+			OnMaxIterations: "bad",
+		},
 	}
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
-	for _, want := range []string{"model.name cannot be empty", "model.temperature must be between 0 and 2", "model.max_tokens must be greater than 0", "tool \"dup\" timeout_ms must be >= 0", "tool \"dup\" is defined more than once", "name cannot be empty", "hooks[0].event \"not-real\" is invalid"} {
+	for _, want := range []string{"model.name cannot be empty", "model.temperature must be between 0 and 2", "model.max_tokens must be greater than 0", "tool \"dup\" timeout_ms must be >= 0", "tool \"dup\" is defined more than once", "name cannot be empty", "hooks[0].event \"not-real\" is invalid", "exit_policy.mode", "exit_policy.max_iterations", "exit_policy.on_max_iterations"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("expected %q in error, got %v", want, err)
 		}

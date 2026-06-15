@@ -427,6 +427,9 @@ in `tool.pre` and consult it in `tool.post`).
 | `ctx.delete(key)`                   | Removes the key. Returns `None`.                  |
 | `ctx.clear()`                       | Drops all turn state. Returns `None`.             |
 | `ctx.snapshot()`                    | Dict of all current `{key: value}` pairs.         |
+| `ctx.agent.done_flag()`             | bool completion flag set by `done` tooling.       |
+| `ctx.agent.set_done_flag(summary="", claims=[])` | Marks done flag and stores completion metadata. |
+| `ctx.agent.run_verification_chain()` | Dict `{ok, reason}` from the turn's verification state. |
 
 ## `exec`
 

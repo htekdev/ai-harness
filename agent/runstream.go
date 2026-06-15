@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -189,7 +190,22 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 
 		if len(choice.Message.ToolCalls) == 0 {
 			a.context.AddMessage(choice.Message)
-			result.Response = choice.Message.Content
+			candidateResponse := choice.Message.Content
+			result.Response = candidateResponse
+
+			decision := a.evaluateStopDecision(turnCtx, result)
+			if decision.Decision == StopDecisionBlock {
+				blockReason := strings.TrimSpace(decision.Reason)
+				if blockReason == "" {
+					blockReason = "Continue until the task is fully complete."
+				}
+				a.context.AddMessage(completion.Message{
+					Role:    completion.RoleUser,
+					Content: blockReason,
+				})
+				continue
+			}
+
 			completed = true
 			break
 		}
@@ -276,7 +292,22 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 	}
 
 	if !completed {
-		return nil, errs.Newf(errs.KindCompletion, "agent.runstream", "max tool iterations reached (%d)", a.maxToolIterations)
+		switch a.onMaxIterations {
+		case "warn_and_exit":
+			if strings.TrimSpace(result.Response) == "" {
+				result.Response = fmt.Sprintf("warning: max tool iterations reached (%d)", a.maxToolIterations)
+			}
+			a.logger.Warn("max tool iterations reached; stream exiting with warning",
+				"turn", a.turnNumber, "max_iterations", a.maxToolIterations)
+		case "continue_with_warning":
+			if strings.TrimSpace(result.Response) == "" {
+				result.Response = fmt.Sprintf("warning: hard cap reached (%d); exiting", a.maxToolIterations)
+			}
+			a.logger.Warn("max tool iterations hard cap enforced",
+				"turn", a.turnNumber, "max_iterations", a.maxToolIterations)
+		default:
+			return nil, errs.Newf(errs.KindCompletion, "agent.runstream", "max tool iterations reached (%d)", a.maxToolIterations)
+		}
 	}
 
 	hookResult = a.hooks.Dispatch(turnCtx, hooks.EventTurnEnd, result)
