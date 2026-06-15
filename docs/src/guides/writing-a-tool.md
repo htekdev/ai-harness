@@ -181,7 +181,7 @@ script: |
   def handle(event, payload):
       if payload.get("name") != "word_count":
           return {"action": "allow"}
-      path = payload.get("args", {}).get("path", "")
+      path = payload.get("arguments", {}).get("path", "")
       forbidden = ["/etc/", "/root/", "/var/lib/"]
       for prefix in forbidden:
           if path.startswith(prefix):
@@ -233,22 +233,21 @@ script: |
   def handle(event, payload):
       if payload.get("name") != "word_count":
           return {"action": "allow"}
-      result = payload.get("result", {})
-      log.info(
-          "word_count.audit",
-          path=payload.get("args", {}).get("path", ""),
-          words=result.get("words", 0),
-          lines=result.get("lines", 0),
-          success=result.get("success", False),
-      )
+      log("word_count.audit" +
+          " path=" + payload.get("arguments", {}).get("path", "") +
+          " is_error=" + str(payload.get("is_error", False)) +
+          " bytes=" + str(len(payload.get("result", ""))))
       return {"action": "allow"}
 ---
 
 # word_count audit log
 
 Emits a structured log line after every successful or failed
-`word_count` call. Pair with the OpenTelemetry exporter to ship audit
-events to Jaeger or any OTel collector.
+`word_count` call. The `tool.post` payload exposes the tool's stringified
+output as `payload["result"]`; if you need typed access to the inner
+fields, decode it explicitly with `json.decode(payload["result"])`. Pair
+with the OpenTelemetry exporter to ship audit events to Jaeger or any
+OTel collector.
 ```
 
 Run a counted call:
@@ -257,8 +256,8 @@ Run a counted call:
 harness run --stream "How many words in CHANGELOG.md?"
 ```
 
-You should see a `word_count.audit path=CHANGELOG.md words=… lines=…
-success=true` line in the logs. The hook fires *after* the tool
+You should see a `word_count.audit path=CHANGELOG.md is_error=false
+bytes=…` line in the logs. The hook fires *after* the tool
 returns, sees the actual result, and emits a structured event the
 observability stack can index. No change to the tool itself was
 required.

@@ -40,7 +40,7 @@ A governance hook that **modifies tool arguments before execution** — useful f
 - event: tool.pre
   handler: modify_tool_args
   priority: 50
-  when: 'tool_name == "read_file"'
+  when: 'payload["name"] == "read_file"'
   script: |
     def handle(event, payload):
         # Extract arguments
@@ -66,7 +66,7 @@ A governance hook that **modifies tool arguments before execution** — useful f
 - event: tool.pre
   handler: add_default_timeout
   priority: 60
-  when: 'tool_name == "http_get"'
+  when: 'payload["name"] == "http_get"'
   script: |
     def handle(event, payload):
         # Extract arguments

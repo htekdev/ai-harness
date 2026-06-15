@@ -1,15 +1,52 @@
 ---
 event: tool.pre
-priority: 100
-when: "tool.name == 'exec' and ('rm -rf' in tool.args.command or 'dd if=' in tool.args.command or 'mkfs' in tool.args.command)"
+priority: 10
+when: 'payload["name"] == "write_file"'
 script: |
-  def run(event, payload):
-      command = payload.get("tool", {}).get("args", {}).get("command", "")
-      log("BLOCKED: Dangerous command detected: " + command)
-      return {
-          "block": True,
-          "reason": "Command contains potentially dangerous operations (rm -rf, dd, mkfs). Please review before executing."
-      }
+  def handle(event, payload):
+      args = payload.get("arguments", {})
+      path = args.get("path", "")
+      protected = ["/etc/", "/root/", "/var/lib/", "/sys/", "/proc/", "/boot/"]
+      for prefix in protected:
+          if path.startswith(prefix):
+              log("BLOCKED write_file to protected path: " + path)
+              return {
+                  "action": "block",
+                  "reason": "path " + path + " is in a protected system directory; refusing write",
+              }
+      return {"action": "allow"}
 ---
 
-Safety hook that blocks potentially dangerous shell commands before execution. Prevents destructive operations like recursive deletion, disk wiping, and filesystem formatting.
+# block_dangerous_commands
+
+A `tool.pre` safety hook that vetoes `write_file` calls targeting protected
+system directories (`/etc/`, `/root/`, `/var/lib/`, `/sys/`, `/proc/`,
+`/boot/`). The agent never gets to mutate the host filesystem in these
+locations — the harness short-circuits the call before the tool runs and
+returns the `reason` to the model so it can explain the refusal.
+
+## Customising this hook
+
+Adapt the `protected` list for your environment, or extend the `when:`
+clause to also fire on other tools (e.g. an `exec` tool that wraps shell
+commands):
+
+```
+when: 'payload["name"] in ("write_file", "exec")'
+```
+
+When you add an `exec`-style tool, also inspect
+`payload["arguments"]["command"]` for substrings like `rm -rf`, `dd if=`,
+or `mkfs` and return a `block` action.
+
+## Hook contract reminders
+
+- Function name is **`handle(event, payload)`** — not `run`.
+- For `tool.pre`, `payload` is **flat**: `{"id", "name", "arguments"}`.
+  There is no `payload["tool"]` wrapper.
+- Returns must be one of `{"action": "allow"}`, `{"action": "block",
+  "reason": "..."}`, or `{"action": "modify", "payload": {...}}`. Any
+  other shape (e.g. `{"block": true}`) is silently treated as **allow**.
+
+See [`docs/src/guides/writing-a-hook.md`](../../../docs/src/guides/writing-a-hook.md)
+for the full tutorial.
