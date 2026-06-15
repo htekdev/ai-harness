@@ -13,7 +13,7 @@ agent that exercises **every Phase 5 governance primitive**:
 | Self-augment (5.8) | `meta.enabled: true` + `meta_tool_guard` hook                         |
 | Network sandbox    | `--allowed-domain` flags on the engine (see "Run it" below)           |
 | Rate limiting      | Per-model + global token-bucket (set on the completion client)        |
-| OTel tracing       | `--otel-endpoint` flag or `OTEL_EXPORTER_OTLP_ENDPOINT` env           |
+| OTel tracing       | `--otel-endpoint` flag or `HARNESS_OTEL_ENDPOINT` env                 |
 | Streaming CLI      | `harness run --stream`                                                |
 
 This is the live demonstration of the **self-augmenting harness** concept:

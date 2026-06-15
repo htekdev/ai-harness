@@ -24,7 +24,7 @@ piece is there, and what you should try first.
 | Self-augment (5.8)   | `meta.enabled: true` + `meta_tool_guard` hook                      | [Governance & Policy](../concepts/governance.md)            |
 | Network sandbox      | `--allowed-domain` flags on the engine                             | [Network Sandboxing](../guides/network-sandbox.md)          |
 | Rate limiting        | Per-model + global token bucket on the completion client           | [Production Deployment](../guides/deployment.md)            |
-| OTel tracing         | `--otel-endpoint` flag or `OTEL_EXPORTER_OTLP_ENDPOINT` env var    | [Observability with OpenTelemetry](../guides/observability.md) |
+| OTel tracing         | `--otel-endpoint` flag or `HARNESS_OTEL_ENDPOINT` env var          | [Observability with OpenTelemetry](../guides/observability.md) |
 | Streaming CLI        | `harness run --stream`                                             | [CLI Reference](../reference/cli.md)                        |
 | Delegation policy    | `delegation: { max_depth, max_concurrent, iterations_per_depth }`  | [Delegation](../concepts/delegation.md)                     |
 
@@ -36,7 +36,7 @@ request. There is no governance surface that lives outside Git.
 ```text
 examples/governed-agent/
 ├── README.md
-├── .env.example                  # GH_TOKEN, optional OTEL_* vars
+├── .env.example                  # GH_TOKEN, optional HARNESS_OTEL_* vars
 ├── harness.md                    # model + policies + system prompt
 └── .harness/
     ├── tools/

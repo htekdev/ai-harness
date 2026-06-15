@@ -26,7 +26,7 @@ services:
     env_file:
       - ./harness.env
     environment:
-      OTEL_SERVICE_NAME: ai-harness
+      HARNESS_OTEL_SERVICE_NAME: ai-harness
     volumes:
       - ./harness.md:/work/harness.md:ro
       - ./.harness:/work/.harness:ro
@@ -52,7 +52,7 @@ services:
         max-file: "5"
 
   # Optional: OTel collector for local trace inspection.
-  # Uncomment and point OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+  # Uncomment and point HARNESS_OTEL_ENDPOINT=http://otel-collector:4318
   # in harness.env to wire it up.
   #
   # otel-collector:
