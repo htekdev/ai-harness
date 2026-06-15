@@ -292,11 +292,13 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 
 	h.agent = agent.New(agent.Options{
-		Client:  client,
-		Tools:   registry,
-		Hooks:   hookSystem,
-		Context: ctxMgr,
-		Logger:  Logger().With("component", "harness"),
+		Client:                        client,
+		Tools:                         registry,
+		Hooks:                         hookSystem,
+		Context:                       ctxMgr,
+		Logger:                        Logger().With("component", "harness"),
+		MaxToolIterations:             agentMaxIter(cfg),
+		MaxEmptyToolCallContinuations: agentMaxEmptyToolCallContinuations(cfg),
 	})
 
 	// Register self-augmenting meta-tools (Phase 5.8). These let the
@@ -315,6 +317,26 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 
 	return h, nil
+}
+
+// agentMaxIter resolves the effective MaxToolIterations from config, with
+// a 0 fallback meaning "use agent.DefaultMaxToolIterations".
+func agentMaxIter(cfg *config.Config) int {
+	if cfg == nil || cfg.Agent == nil {
+		return 0
+	}
+	return cfg.Agent.MaxToolIterations
+}
+
+// agentMaxEmptyToolCallContinuations resolves the recovery budget for
+// the smarter-model planning-turn failure mode (text-only + stop + no
+// tool_calls). Default 0 = strict OpenAI spec; any positive value enables
+// bounded "act or finalize" nudging in agent.Run / agent.RunStream.
+func agentMaxEmptyToolCallContinuations(cfg *config.Config) int {
+	if cfg == nil || cfg.Agent == nil {
+		return 0
+	}
+	return cfg.Agent.MaxEmptyToolCallContinuations
 }
 
 // Run executes a single agent turn.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -99,6 +100,7 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 	// truncation. Mirrors copilot-agent-runtime MAX_CONTINUATION_ATTEMPTS=3.
 	const maxTokenExhaustionContinuations = 3
 	consecutiveTokenExhaustions := 0
+	consecutiveEmptyToolCalls := 0
 
 	for iteration := 0; iteration < a.maxToolIterations; iteration++ {
 		iterationsRun = iteration + 1
@@ -180,11 +182,38 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 		consecutiveTokenExhaustions = 0
 
 		if len(choice.Message.ToolCalls) == 0 {
+			if choice.FinishReason == "stop" &&
+				strings.TrimSpace(choice.Message.Content) != "" &&
+				a.maxEmptyToolCallContinuations > 0 &&
+				consecutiveEmptyToolCalls < a.maxEmptyToolCallContinuations {
+				consecutiveEmptyToolCalls++
+				a.logger.Warn("streaming text-only response with no tool calls; nudging agent",
+					"turn", a.turnNumber, "iteration", iteration,
+					"attempt", consecutiveEmptyToolCalls,
+					"max_attempts", a.maxEmptyToolCallContinuations,
+					"finish_reason", choice.FinishReason,
+					"content_len", len(choice.Message.Content),
+					"content_preview", truncateForLog(choice.Message.Content, 120))
+				a.context.AddMessage(choice.Message)
+				a.context.AddMessage(completion.Message{
+					Role: completion.RoleUser,
+					Content: "Either call the appropriate tool now to make progress, or " +
+						"provide your complete final answer with no further planning preamble. " +
+						"Do not narrate intent without acting.",
+				})
+				continue
+			}
+			a.logger.Info("turn complete: streaming text-only response",
+				"turn", a.turnNumber, "iteration", iteration,
+				"finish_reason", choice.FinishReason,
+				"content_len", len(choice.Message.Content),
+				"empty_continuations_used", consecutiveEmptyToolCalls)
 			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
 			completed = true
 			break
 		}
+		consecutiveEmptyToolCalls = 0
 
 		a.context.AddMessage(choice.Message)
 

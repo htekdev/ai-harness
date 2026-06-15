@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -32,14 +33,15 @@ const DefaultMaxToolIterations = 20
 
 // Agent is the core agent loop that orchestrates conversation turns.
 type Agent struct {
-	client            *completion.Client
-	tools             *tools.Registry
-	hooks             *hooks.System
-	context           *agentctx.Manager
-	logger            *slog.Logger
-	maxToolIterations int
-	composer          *artifact.Composer
-	turnNumber        int
+	client                        *completion.Client
+	tools                         *tools.Registry
+	hooks                         *hooks.System
+	context                       *agentctx.Manager
+	logger                        *slog.Logger
+	maxToolIterations             int
+	maxEmptyToolCallContinuations int
+	composer                      *artifact.Composer
+	turnNumber                    int
 }
 
 // Options configures the agent.
@@ -52,6 +54,18 @@ type Options struct {
 	// MaxToolIterations overrides the default cap on tool-call loops per turn.
 	// 0 means use DefaultMaxToolIterations.
 	MaxToolIterations int
+	// MaxEmptyToolCallContinuations is the recovery budget for the
+	// "smarter-model planning turn" failure mode: a model emits text
+	// content with finish_reason="stop" and zero tool_calls — looking
+	// like a final reply but actually being a mid-thought planning
+	// utterance. When > 0, the loop nudges the model with a system
+	// reminder ("act or finalize") up to this many consecutive times
+	// before giving up and treating the response as terminal.
+	//
+	// Default 0 = disabled, which matches strict OpenAI/Claude spec
+	// (text-only + finish_reason=stop = final answer). Set 1-3 for
+	// reasoning-heavy models that pre-narrate before acting.
+	MaxEmptyToolCallContinuations int
 	// Composer, if provided, will have EvaluateConditions called at the start of each turn.
 	Composer *artifact.Composer
 }
@@ -73,13 +87,14 @@ func New(opts Options) *Agent {
 	}
 
 	return &Agent{
-		client:            opts.Client,
-		tools:             opts.Tools,
-		hooks:             opts.Hooks,
-		context:           opts.Context,
-		logger:            opts.Logger,
-		maxToolIterations: maxIter,
-		composer:          opts.Composer,
+		client:                        opts.Client,
+		tools:                         opts.Tools,
+		hooks:                         opts.Hooks,
+		context:                       opts.Context,
+		logger:                        opts.Logger,
+		maxToolIterations:             maxIter,
+		maxEmptyToolCallContinuations: opts.MaxEmptyToolCallContinuations,
+		composer:                      opts.Composer,
 	}
 }
 
@@ -93,6 +108,17 @@ type TurnResult struct {
 	ToolResults []tools.Result
 	// Usage contains the aggregated token usage across all completions in this turn.
 	Usage completion.Usage
+}
+
+// truncateForLog clamps long strings for structured-log fields so we
+// don't blow up log lines on very long assistant content. Used by the
+// loop-exit diagnostic logging.
+func truncateForLog(s string, max int) string {
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 func applyHookPayload(payload any, target any) error {
@@ -240,6 +266,15 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 	const maxTokenExhaustionContinuations = 3
 	consecutiveTokenExhaustions := 0
 
+	// Recovery budget for "model emitted planning text with no tool calls
+	// and finish_reason=stop" — the smarter-model failure mode where a
+	// reasoning-heavy model narrates intent ("I'll start by reading the
+	// README, then check the package.json") and waits for confirmation
+	// instead of acting. Strict OpenAI spec says this is a final reply,
+	// but for reasoning models it's a mid-thought hand-off. Bounded;
+	// disabled (0) by default. See Options.MaxEmptyToolCallContinuations.
+	consecutiveEmptyToolCalls := 0
+
 	for iteration := 0; iteration < a.maxToolIterations; iteration++ {
 		iterationsRun = iteration + 1
 		// Build completion request
@@ -330,13 +365,49 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 		// reset too, mirroring chat-completion-client.ts:1725.
 		consecutiveTokenExhaustions = 0
 
-		// If no tool calls, we have a final response
+		// If no tool calls, we have a final response — UNLESS the
+		// "smarter-model planning turn" recovery is enabled. With reasoning
+		// models, a finish_reason="stop" + content + zero tool_calls often
+		// means "I'm thinking out loud, please prompt me to continue,"
+		// not "here's my final answer." Bounded re-prompt with a system
+		// reminder to either act or finalize.
 		if len(choice.Message.ToolCalls) == 0 {
+			if choice.FinishReason == "stop" &&
+				strings.TrimSpace(choice.Message.Content) != "" &&
+				a.maxEmptyToolCallContinuations > 0 &&
+				consecutiveEmptyToolCalls < a.maxEmptyToolCallContinuations {
+				consecutiveEmptyToolCalls++
+				a.logger.Warn("text-only response with no tool calls; nudging agent",
+					"turn", a.turnNumber, "iteration", iteration,
+					"attempt", consecutiveEmptyToolCalls,
+					"max_attempts", a.maxEmptyToolCallContinuations,
+					"finish_reason", choice.FinishReason,
+					"content_len", len(choice.Message.Content),
+					"content_preview", truncateForLog(choice.Message.Content, 120))
+				a.context.AddMessage(choice.Message)
+				a.context.AddMessage(completion.Message{
+					Role: completion.RoleUser,
+					Content: "Either call the appropriate tool now to make progress, or " +
+						"provide your complete final answer with no further planning preamble. " +
+						"Do not narrate intent without acting.",
+				})
+				continue
+			}
+			// Diagnostic: log every clean exit so we can correlate with
+			// model upgrades / specific finish_reason values when the agent
+			// appears to exit prematurely.
+			a.logger.Info("turn complete: text-only response",
+				"turn", a.turnNumber, "iteration", iteration,
+				"finish_reason", choice.FinishReason,
+				"content_len", len(choice.Message.Content),
+				"empty_continuations_used", consecutiveEmptyToolCalls)
 			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
 			completed = true
 			break
 		}
+		// Tool-call response — reset both recovery counters.
+		consecutiveEmptyToolCalls = 0
 
 		// Add assistant message with tool calls to context
 		a.context.AddMessage(choice.Message)

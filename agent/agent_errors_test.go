@@ -160,3 +160,97 @@ func TestRun_FinishReasonLength_BudgetExhausted_IsRetriable(t *testing.T) {
 		t.Fatal("exhausted-truncation error should be retriable")
 	}
 }
+
+// Smarter-model planning-turn nudge. When a reasoning model emits text
+// content with finish_reason="stop" and zero tool_calls (planning out
+// loud instead of acting), the loop must inject a system reminder and
+// re-prompt — bounded by Options.MaxEmptyToolCallContinuations. This is
+// the bug Hector reported after upgrading the test-harness model.
+func TestRun_TextOnlyStop_NudgesAndRecovers(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n == 1 {
+			// Smarter model emits planning text, no tool calls, stop.
+			_ = json.NewEncoder(w).Encode(completion.Response{
+				Choices: []completion.Choice{{
+					Index: 0,
+					Message: completion.Message{
+						Role:    completion.RoleAssistant,
+						Content: "Let me start by reading the README, then check the package.json.",
+					},
+					FinishReason: "stop",
+				}},
+			})
+			return
+		}
+		// After the nudge, model finalizes.
+		_ = json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{
+				Index: 0,
+				Message: completion.Message{
+					Role:    completion.RoleAssistant,
+					Content: "All done.",
+				},
+				FinishReason: "stop",
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	client := completion.NewClient(completion.ClientConfig{BaseURL: srv.URL, APIKey: "k", MaxRetries: 1})
+	a := New(Options{
+		Client:                        client,
+		Context:                       agentctx.NewManager(agentctx.Config{SystemPrompt: "x"}),
+		MaxEmptyToolCallContinuations: 1,
+	})
+
+	res, err := a.Run(context.Background(), "do a thing")
+	if err != nil {
+		t.Fatalf("expected nudge recovery, got error: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("expected 2 model calls (planning + finalize after 1 nudge), got %d", got)
+	}
+	if !strings.Contains(res.Response, "All done") {
+		t.Fatalf("expected finalized reply, got %q", res.Response)
+	}
+}
+
+// When MaxEmptyToolCallContinuations is 0 (default), the loop must
+// preserve strict OpenAI-spec behavior: text-only + stop = final reply.
+func TestRun_TextOnlyStop_DefaultExitsImmediately(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		_ = json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{
+				Index: 0,
+				Message: completion.Message{
+					Role:    completion.RoleAssistant,
+					Content: "Here is my answer.",
+				},
+				FinishReason: "stop",
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	client := completion.NewClient(completion.ClientConfig{BaseURL: srv.URL, APIKey: "k", MaxRetries: 1})
+	a := New(Options{
+		Client:  client,
+		Context: agentctx.NewManager(agentctx.Config{SystemPrompt: "x"}),
+		// MaxEmptyToolCallContinuations defaults to 0
+	})
+
+	res, err := a.Run(context.Background(), "do a thing")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("expected 1 model call (no nudging), got %d", got)
+	}
+	if res.Response != "Here is my answer." {
+		t.Fatalf("unexpected response: %q", res.Response)
+	}
+}

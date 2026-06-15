@@ -16,6 +16,7 @@ import (
 type Config struct {
 	Model       ModelConfig        `yaml:"model" json:"model"`
 	Models      []ModelConfig      `yaml:"models,omitempty" json:"models,omitempty"`
+	Agent       *AgentLoopConfig   `yaml:"agent,omitempty" json:"agent,omitempty"`
 	Context     ContextConfig      `yaml:"context" json:"context"`
 	Tools       []ToolConfig       `yaml:"tools" json:"tools"`
 	ToolsPolicy *ToolsPolicyConfig `yaml:"tools_policy,omitempty" json:"tools_policy,omitempty"`
@@ -24,6 +25,23 @@ type Config struct {
 	Meta        *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
 	Serve       *ServeConfig       `yaml:"serve,omitempty" json:"serve,omitempty"`
 	Network     *NetworkConfig     `yaml:"network,omitempty" json:"network,omitempty"`
+}
+
+// AgentLoopConfig tunes the inner tool-call loop.
+type AgentLoopConfig struct {
+	// MaxToolIterations caps how many model→tool round-trips a single
+	// turn may run before forcing termination. 0 = use the harness
+	// default (20).
+	MaxToolIterations int `yaml:"max_tool_iterations,omitempty" json:"max_tool_iterations,omitempty"`
+	// MaxEmptyToolCallContinuations is the recovery budget for the
+	// "smarter-model planning turn" failure mode where a reasoning model
+	// emits text content with finish_reason="stop" and zero tool_calls
+	// (looking like a final reply but actually a mid-thought hand-off).
+	// When > 0, the loop nudges the model with "act or finalize" up to
+	// this many consecutive times before giving up. 0 = strict OpenAI
+	// spec (text-only + stop = final answer). Recommended 1-3 for
+	// reasoning-heavy models. See agent/agent.go for full semantics.
+	MaxEmptyToolCallContinuations int `yaml:"max_empty_tool_call_continuations,omitempty" json:"max_empty_tool_call_continuations,omitempty"`
 }
 
 // NetworkConfig configures the harness network sandbox enforced by the
