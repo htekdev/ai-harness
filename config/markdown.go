@@ -244,6 +244,31 @@ func (ah *AgentHook) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
+// ParseBundleMarkdown parses a Shape A typed artifact bundle .md file.
+// A bundle's frontmatter may declare top-level `tools:` and/or `hooks:`
+// lists (matching the inline harness.md schema), allowing one file to
+// ship multiple capabilities together. Returns the flat tool and hook
+// slices; the body is intentionally ignored at this layer (the artifact
+// loader handles model-visible context separately).
+func ParseBundleMarkdown(data []byte) ([]ToolConfig, []HookConfig, error) {
+	doc, err := ParseMarkdown(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	type bundleFrontmatter struct {
+		Tools []ToolConfig `yaml:"tools"`
+		Hooks []HookConfig `yaml:"hooks"`
+	}
+
+	var fm bundleFrontmatter
+	if err := yamlUnmarshal(doc.Frontmatter, &fm); err != nil {
+		return nil, nil, errs.Wrap(errs.KindConfig, "config.parsebundle", err, "parse bundle frontmatter")
+	}
+
+	return fm.Tools, fm.Hooks, nil
+}
+
 // ParseAgentMarkdown parses an agent .md file. The filename is the agent name,
 // frontmatter has model/tools/hooks, body is the system prompt.
 func ParseAgentMarkdown(data []byte, name string) (*AgentConfig, error) {
