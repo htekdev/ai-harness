@@ -14,7 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Pending items tracked in [#98 — Phase 6.2 Launch Sequence](https://github.com/htekdev/ai-harness/issues/98).
+Pending Phase 6 work is tracked in
+[#95 — Phase 6: Community & Launch (kickoff)](https://github.com/htekdev/ai-harness/issues/95),
+with launch-sequence specifics tracked in
+[#98 — Phase 6.2 Launch Sequence](https://github.com/htekdev/ai-harness/issues/98).
 
 ---
 
