@@ -44,6 +44,22 @@ func LoadDirectory(baseDir string) (*LoadResult, error) {
 		result.Config.Hooks = hooks
 	}
 
+	// Load Shape A bundles from .harness/plugins/, .harness/builtins/,
+	// and .harness/overrides/. Each .md file may declare multiple tools
+	// and/or hooks in its frontmatter — we merge them all into the
+	// flat Tools/Hooks slices on the result config. This aligns the
+	// runtime config loader with the artifact loader (LoadTree) which
+	// already scans these subdirs for the typed-artifact registry.
+	for _, sub := range []string{"plugins", "builtins", "overrides"} {
+		bundleDir := filepath.Join(harnessDir, sub)
+		bundleTools, bundleHooks, err := loadBundlesFromDir(bundleDir)
+		if err != nil {
+			return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load .harness/%s", sub)
+		}
+		result.Config.Tools = append(result.Config.Tools, bundleTools...)
+		result.Config.Hooks = append(result.Config.Hooks, bundleHooks...)
+	}
+
 	// Load agents from .harness/agents/
 	agentsDir := filepath.Join(harnessDir, "agents")
 	if agents, err := loadAgentsFromDir(agentsDir); err != nil {
@@ -121,6 +137,49 @@ func loadHooksFromDir(dir string) ([]HookConfig, error) {
 	}
 
 	return hooks, nil
+}
+
+// loadBundlesFromDir scans a directory for Shape A typed artifact
+// bundle .md files. Each file's frontmatter may declare a `tools:`
+// list, a `hooks:` list, or both — the loader returns the flat union
+// of all of them so they can be merged into the main config.
+//
+// Bundles differ from `.harness/tools/` and `.harness/hooks/` files
+// in that those directories assume one capability per file (with the
+// filename providing the name); bundles are self-naming via the
+// embedded YAML and may carry multiple capabilities per file.
+func loadBundlesFromDir(dir string) ([]ToolConfig, []HookConfig, error) {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, nil, nil
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil, errs.Wrap(errs.KindConfig, "config.loadbundles", err, "read directory %s", dir)
+	}
+
+	var tools []ToolConfig
+	var hooks []HookConfig
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, nil, errs.Wrap(errs.KindConfig, "config.loadbundles", err, "read bundle file %s", entry.Name())
+		}
+
+		bundleTools, bundleHooks, err := ParseBundleMarkdown(data)
+		if err != nil {
+			return nil, nil, errs.Wrap(errs.KindConfig, "config.loadbundles", err, "parse bundle %s", entry.Name())
+		}
+
+		tools = append(tools, bundleTools...)
+		hooks = append(hooks, bundleHooks...)
+	}
+
+	return tools, hooks, nil
 }
 
 // loadAgentsFromDir scans a directory for .md files and parses each as an agent.

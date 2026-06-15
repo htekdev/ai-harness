@@ -149,8 +149,8 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 
 		choice := resp.Choices[0]
 
-		// See agent.go Run() for the full rationale. Same truncation /
-		// degenerate-tool_calls detection in the streaming path.
+		// See agent.go Run() for the full rationale. Same finish_reason
+		// guard in the streaming path.
 		switch choice.FinishReason {
 		case "length":
 			a.logger.Warn("streaming completion truncated by max_tokens",
@@ -166,6 +166,24 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 				return nil, errs.Retriable(errs.KindCompletion, "agent.completion.stream",
 					fmt.Errorf("finish_reason=tool_calls but no tool_calls parsed"),
 					"degenerate tool_calls response")
+			}
+		case "stop", "end_turn", "":
+			// fall through
+		case "content_filter":
+			a.logger.Warn("streaming completion stopped by content filter",
+				"turn", a.turnNumber, "iteration", iteration,
+				"finish_reason", choice.FinishReason)
+			return nil, errs.Newf(errs.KindCompletion, "agent.completion.stream",
+				"completion stopped by content filter")
+		default:
+			a.logger.Warn("streaming unknown finish_reason; not treating as final answer",
+				"turn", a.turnNumber, "iteration", iteration,
+				"finish_reason", choice.FinishReason,
+				"tool_calls", len(choice.Message.ToolCalls))
+			if len(choice.Message.ToolCalls) == 0 {
+				return nil, errs.Retriable(errs.KindCompletion, "agent.completion.stream",
+					fmt.Errorf("unrecognized finish_reason=%q with no tool_calls", choice.FinishReason),
+					"unrecognized finish_reason with empty tool_calls")
 			}
 		}
 

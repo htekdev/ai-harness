@@ -294,8 +294,11 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 		//   "tool_calls" -> provider claimed tool calls but parsing produced
 		//                   an empty slice. Almost always a streaming /
 		//                   provider format mismatch worth retrying.
-		// Anything else (incl. "stop", "" for non-conformant providers) falls
-		// through to the standard "no tool_calls means we're done" branch.
+		// Only "stop" (and "" for non-conformant providers) plus empty
+		// tool_calls is a legitimate final answer. Anything else with empty
+		// tool_calls is degenerate and must NOT silently exit the loop —
+		// see #104 for the agent.stop hook primitive that will eventually
+		// let governance hooks decide.
 		switch choice.FinishReason {
 		case "length":
 			a.logger.Warn("completion truncated by max_tokens",
@@ -313,9 +316,28 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 					fmt.Errorf("finish_reason=tool_calls but no tool_calls parsed"),
 					"degenerate tool_calls response")
 			}
+		case "stop", "end_turn", "":
+			// fall through to final-response handling
+		case "content_filter":
+			a.logger.Warn("completion stopped by content filter",
+				"turn", a.turnNumber, "iteration", iteration,
+				"finish_reason", choice.FinishReason)
+			return nil, errs.Newf(errs.KindCompletion, "agent.completion",
+				"completion stopped by content filter")
+		default:
+			a.logger.Warn("unknown finish_reason; not treating as final answer",
+				"turn", a.turnNumber, "iteration", iteration,
+				"finish_reason", choice.FinishReason,
+				"tool_calls", len(choice.Message.ToolCalls))
+			if len(choice.Message.ToolCalls) == 0 {
+				return nil, errs.Retriable(errs.KindCompletion, "agent.completion",
+					fmt.Errorf("unrecognized finish_reason=%q with no tool_calls", choice.FinishReason),
+					"unrecognized finish_reason with empty tool_calls")
+			}
 		}
 
-		// If no tool calls, we have a final response
+		// Final response: emitted by the model with finish_reason=stop and
+		// zero tool_calls. Anything else has been handled (or errored) above.
 		if len(choice.Message.ToolCalls) == 0 {
 			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
