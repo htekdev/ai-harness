@@ -368,3 +368,49 @@ context:
 		t.Fatal("expected agent")
 	}
 }
+
+func TestNewFromConfigCoreIdentityLevels(t *testing.T) {
+	setTestEnv(t, "AI_HARNESS_TEST_KEY", "secret")
+	base := testConfig()
+	base.Context.SystemPrompt = "User prompt."
+
+	cases := []struct {
+		name  string
+		level string
+		want  string
+	}{
+		{
+			name:  "enabled",
+			level: "enabled",
+			want:  augmentSystemPromptForSelfAugment(ComposeSystemPrompt(base.Context.SystemPrompt, "enabled")),
+		},
+		{
+			name:  "minimal",
+			level: "minimal",
+			want:  augmentSystemPromptForSelfAugment(ComposeSystemPrompt(base.Context.SystemPrompt, "minimal")),
+		},
+		{
+			name:  "disabled",
+			level: "disabled",
+			want:  augmentSystemPromptForSelfAugment(base.Context.SystemPrompt),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := *base
+			cfg.Context.CoreIdentity = tc.level
+			h, err := NewFromConfig(&cfg, nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			msgs := h.ctxMgr.Messages()
+			if len(msgs) == 0 {
+				t.Fatal("expected system message")
+			}
+			if msgs[0].Content != tc.want {
+				t.Fatalf("unexpected system prompt for %s:\nwant: %q\ngot:  %q", tc.name, tc.want, msgs[0].Content)
+			}
+		})
+	}
+}

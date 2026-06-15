@@ -145,6 +145,7 @@ Context-window management.
 context:
   max_history: 50
   max_tokens: 64000
+  core_identity: enabled
   system_prompt: ""
 ```
 
@@ -152,6 +153,7 @@ context:
 |-----------------|--------|----------|----------------------------------------------------------------------------------------------------|
 | `max_history`   | int    | `50`     | Max turns retained in the rolling history before compaction.                                       |
 | `max_tokens`    | int    | `128000` | Soft budget for the assembled prompt. Compaction kicks in before this is exceeded.                 |
+| `core_identity` | string | `enabled` | Baseline identity injection mode: `enabled`, `minimal`, or `disabled`.                             |
 | `system_prompt` | string | `""`     | Inline system prompt. **Overridden by the Markdown body** if the file has one (preferred path).    |
 
 Setting `system_prompt` in frontmatter is supported for `.yaml` configs and

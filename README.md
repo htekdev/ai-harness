@@ -937,6 +937,7 @@ Model artifacts may carry standard artifact metadata (`name`, `version`, `descri
 | --- | --- | --- | --- |
 | `max_history` | int | no | Defaults to `50` |
 | `max_tokens` | int | no | Defaults to `128000` |
+| `core_identity` | string | no | `enabled` (default), `minimal`, or `disabled` baseline identity injection |
 | `system_prompt` | string | no | Prepended as a system message |
 
 #### `tools[]`

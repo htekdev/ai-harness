@@ -11,6 +11,7 @@ import (
 
 	"github.com/htekdev/ai-harness/artifact"
 	"github.com/htekdev/ai-harness/config"
+	"github.com/htekdev/ai-harness/harness"
 )
 
 func cmdInspect(args []string) error {
@@ -62,6 +63,14 @@ Golden path:
 	fmt.Println(strings.Repeat("─", 60))
 	fmt.Printf("  Config:   %s\n", cfgPath)
 	fmt.Printf("  Model:    %s (provider: %s)\n", cfg.Model.Name, cfg.Model.Provider)
+	coreIdentity := harness.CoreIdentity(cfg.Context.CoreIdentity)
+	composedPrompt := harness.ComposeSystemPrompt(cfg.Context.SystemPrompt, cfg.Context.CoreIdentity)
+	fmt.Printf("  Prompt:   ~%d tokens (%d user + %d core_identity)\n",
+		estimateTokensRough(composedPrompt),
+		estimateTokensRough(cfg.Context.SystemPrompt),
+		estimateTokensRough(coreIdentity),
+	)
+	fmt.Printf("  Identity: %s\n", strings.ToLower(strings.TrimSpace(cfg.Context.CoreIdentity)))
 
 	apiKey := cfg.ResolveAPIKey()
 	if apiKey != "" {
@@ -69,6 +78,7 @@ Golden path:
 	} else {
 		fmt.Println("  API key:  ⚠️  not configured — run 'harness validate' for details")
 	}
+
 	fmt.Println()
 
 	// ── Tools ─────────────────────────────────────────────────────────────────
@@ -193,4 +203,11 @@ Golden path:
 	}
 
 	return nil
+}
+
+func estimateTokensRough(s string) int {
+	if s == "" {
+		return 0
+	}
+	return len(s) / 4
 }
