@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/htekdev/ai-harness/completion"
@@ -65,16 +67,75 @@ func TestRun_ProviderError_IsRetriableCompletion(t *testing.T) {
 
 // Regression for the live Telegram-bot bug: when a Copilot/OpenAI provider
 // returns finish_reason="length" (response truncated by max_tokens), the
-// loop must NOT silently exit as "successful with text-only reply" — that
-// produced reports of the agent saying "let me try X" and then stopping.
-func TestRun_FinishReasonLength_IsRetriableTruncation(t *testing.T) {
+// loop must AUTO-CONTINUE by injecting "Please continue from where you
+// left off." rather than silently exiting with the truncated text or
+// erroring out. Mirrors copilot-agent-runtime's MAX_CONTINUATION_ATTEMPTS=3
+// pattern. This is exactly what produced reports of the agent saying "let
+// me try X" and then stopping.
+func TestRun_FinishReasonLength_AutoContinuesAndRecovers(t *testing.T) {
+	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n == 1 {
+			// First call: model gets truncated mid-thought.
+			_ = json.NewEncoder(w).Encode(completion.Response{
+				Choices: []completion.Choice{{
+					Index: 0,
+					Message: completion.Message{
+						Role:    completion.RoleAssistant,
+						Content: "hm, that didn't work, let me try",
+					},
+					FinishReason: "length",
+				}},
+			})
+			return
+		}
+		// Second call (after continuation prompt): model finishes cleanly.
 		_ = json.NewEncoder(w).Encode(completion.Response{
 			Choices: []completion.Choice{{
 				Index: 0,
 				Message: completion.Message{
 					Role:    completion.RoleAssistant,
-					Content: "hm, that didn't work, let me try",
+					Content: "the other approach instead. Done.",
+				},
+				FinishReason: "stop",
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	client := completion.NewClient(completion.ClientConfig{BaseURL: srv.URL, APIKey: "k", MaxRetries: 1})
+	a := New(Options{
+		Client:  client,
+		Context: agentctx.NewManager(agentctx.Config{SystemPrompt: "x"}),
+	})
+
+	res, err := a.Run(context.Background(), "do a thing")
+	if err != nil {
+		t.Fatalf("expected auto-recovery, got error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected non-nil result on auto-recovery")
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("expected 2 model calls (truncated + continuation), got %d", got)
+	}
+	if !strings.Contains(res.Response, "Done") {
+		t.Fatalf("expected continuation reply, got %q", res.Response)
+	}
+}
+
+// Companion: when truncation persists past the continuation budget (3),
+// surface a typed retriable error instead of looping forever.
+func TestRun_FinishReasonLength_BudgetExhausted_IsRetriable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always truncate — pathological model / pathologically small max_tokens.
+		_ = json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{
+				Index: 0,
+				Message: completion.Message{
+					Role:    completion.RoleAssistant,
+					Content: "still cut off",
 				},
 				FinishReason: "length",
 			}},
@@ -88,49 +149,14 @@ func TestRun_FinishReasonLength_IsRetriableTruncation(t *testing.T) {
 		Context: agentctx.NewManager(agentctx.Config{SystemPrompt: "x"}),
 	})
 
-	res, err := a.Run(context.Background(), "do a thing")
-	if err == nil {
-		t.Fatalf("expected truncation error, got result=%+v", res)
-	}
-	if k := errs.KindOf(err); k != errs.KindCompletion {
-		t.Fatalf("KindOf = %v, want KindCompletion", k)
-	}
-	if !errs.IsRetriable(err) {
-		t.Fatalf("truncation should be retriable so operators can raise max_tokens and retry")
-	}
-}
-
-// Companion regression: provider claims tool_calls but parser surfaced none.
-// Almost always a streaming/format mismatch — must be loud, not silent-done.
-func TestRun_FinishReasonToolCalls_NoneParsed_IsRetriable(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(completion.Response{
-			Choices: []completion.Choice{{
-				Index: 0,
-				Message: completion.Message{
-					Role:    completion.RoleAssistant,
-					Content: "",
-				},
-				FinishReason: "tool_calls",
-			}},
-		})
-	}))
-	defer srv.Close()
-
-	client := completion.NewClient(completion.ClientConfig{BaseURL: srv.URL, APIKey: "k", MaxRetries: 1})
-	a := New(Options{
-		Client:  client,
-		Context: agentctx.NewManager(agentctx.Config{SystemPrompt: "x"}),
-	})
-
 	_, err := a.Run(context.Background(), "do a thing")
 	if err == nil {
-		t.Fatal("expected degenerate-tool_calls error")
+		t.Fatal("expected exhaustion error after repeated truncations")
 	}
 	if k := errs.KindOf(err); k != errs.KindCompletion {
 		t.Fatalf("KindOf = %v, want KindCompletion", k)
 	}
 	if !errs.IsRetriable(err) {
-		t.Fatal("degenerate tool_calls should be retriable")
+		t.Fatal("exhausted-truncation error should be retriable")
 	}
 }

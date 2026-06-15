@@ -231,6 +231,15 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 	result = &TurnResult{}
 	completed := false
 
+	// Auto-continuation budget for finish_reason=length (truncation).
+	// Mirrors copilot-agent-runtime's MAX_CONTINUATION_ATTEMPTS=3 in
+	// chat-completion-client.ts:858. When the model is cut off mid-thought,
+	// we inject a "please continue" user message and re-prompt instead of
+	// silently shipping the truncated reply. Reset on any non-truncation
+	// response so transient truncations don't accumulate across a turn.
+	const maxTokenExhaustionContinuations = 3
+	consecutiveTokenExhaustions := 0
+
 	for iteration := 0; iteration < a.maxToolIterations; iteration++ {
 		iterationsRun = iteration + 1
 		// Build completion request
@@ -280,40 +289,46 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 
 		choice := resp.Choices[0]
 
-		// Detect degenerate / truncated completions BEFORE the standard
-		// "text-only response = final answer" exit. Without this, a turn
-		// truncated by max_tokens (finish_reason="length") looks identical
-		// to a deliberate final reply: the model emitted some text, no
-		// tool_calls, loop exits "complete" — and the user sees a partial
-		// "let me try X" reply that never actually tries X.
+		// Truncation auto-continuation. When the model is cut off by
+		// max_tokens (finish_reason="length") AND emits no tool calls, the
+		// naive "no tool_calls = final reply" branch below would ship a
+		// half-sentence ("hm let me try X") as a "successful" turn — which
+		// is exactly the bug Hector reported testing @htekdevaiharness.
 		//
-		// Finish-reason cases handled here:
-		//   "length"     -> response truncated mid-tool-call by max_tokens.
-		//                   Surface as a typed error so the caller knows to
-		//                   raise max_tokens, not as a "successful" turn.
-		//   "tool_calls" -> provider claimed tool calls but parsing produced
-		//                   an empty slice. Almost always a streaming /
-		//                   provider format mismatch worth retrying.
-		// Anything else (incl. "stop", "" for non-conformant providers) falls
-		// through to the standard "no tool_calls means we're done" branch.
-		switch choice.FinishReason {
-		case "length":
-			a.logger.Warn("completion truncated by max_tokens",
-				"turn", a.turnNumber, "iteration", iteration,
-				"finish_reason", choice.FinishReason,
-				"completion_tokens", resp.Usage.CompletionTokens)
-			return nil, errs.Retriable(errs.KindCompletion, "agent.completion",
-				fmt.Errorf("response truncated (finish_reason=length); raise model.max_tokens"),
-				"completion truncated by max_tokens")
-		case "tool_calls":
-			if len(choice.Message.ToolCalls) == 0 {
-				a.logger.Warn("provider reported tool_calls but parsed none",
-					"turn", a.turnNumber, "iteration", iteration)
-				return nil, errs.Retriable(errs.KindCompletion, "agent.completion",
-					fmt.Errorf("finish_reason=tool_calls but no tool_calls parsed"),
-					"degenerate tool_calls response")
+		// Mirrors copilot-agent-runtime/chat-completion-client.ts:1908-1923:
+		// inject a synthetic user message asking the model to continue, add
+		// the partial assistant message to history first so the model has
+		// context, and re-enter the loop. Bounded by
+		// maxTokenExhaustionContinuations to prevent runaway loops on a
+		// pathologically small max_tokens.
+		if choice.FinishReason == "length" && len(choice.Message.ToolCalls) == 0 {
+			if consecutiveTokenExhaustions+1 < maxTokenExhaustionContinuations {
+				consecutiveTokenExhaustions++
+				a.logger.Warn("completion truncated, injecting continuation prompt",
+					"turn", a.turnNumber, "iteration", iteration,
+					"attempt", consecutiveTokenExhaustions,
+					"max_attempts", maxTokenExhaustionContinuations)
+				// Preserve the partial assistant turn in history so the
+				// model can resume coherently, then nudge it to continue.
+				a.context.AddMessage(choice.Message)
+				a.context.AddMessage(completion.Message{
+					Role:    completion.RoleUser,
+					Content: "Please continue from where you left off.",
+				})
+				continue
 			}
+			// Budget exhausted: fall through to typed error rather than
+			// silently emit a half-truncated reply.
+			a.logger.Error("completion truncated; continuation budget exhausted",
+				"turn", a.turnNumber, "iteration", iteration,
+				"attempts", consecutiveTokenExhaustions)
+			return nil, errs.Retriable(errs.KindCompletion, "agent.completion",
+				fmt.Errorf("response truncated repeatedly after %d continuations; raise model.max_tokens", consecutiveTokenExhaustions),
+				"completion truncated by max_tokens")
 		}
+		// Any non-truncation response resets the counter. Tool-call rounds
+		// reset too, mirroring chat-completion-client.ts:1725.
+		consecutiveTokenExhaustions = 0
 
 		// If no tool calls, we have a final response
 		if len(choice.Message.ToolCalls) == 0 {

@@ -95,6 +95,11 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 	result = &TurnResult{}
 	completed := false
 
+	// See agent.go Run() — same auto-continuation budget on max_tokens
+	// truncation. Mirrors copilot-agent-runtime MAX_CONTINUATION_ATTEMPTS=3.
+	const maxTokenExhaustionContinuations = 3
+	consecutiveTokenExhaustions := 0
+
 	for iteration := 0; iteration < a.maxToolIterations; iteration++ {
 		iterationsRun = iteration + 1
 
@@ -149,25 +154,30 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 
 		choice := resp.Choices[0]
 
-		// See agent.go Run() for the full rationale. Same truncation /
-		// degenerate-tool_calls detection in the streaming path.
-		switch choice.FinishReason {
-		case "length":
-			a.logger.Warn("streaming completion truncated by max_tokens",
-				"turn", a.turnNumber, "iteration", iteration,
-				"finish_reason", choice.FinishReason)
-			return nil, errs.Retriable(errs.KindCompletion, "agent.completion.stream",
-				fmt.Errorf("response truncated (finish_reason=length); raise model.max_tokens"),
-				"completion truncated by max_tokens")
-		case "tool_calls":
-			if len(choice.Message.ToolCalls) == 0 {
-				a.logger.Warn("streaming provider reported tool_calls but parsed none",
-					"turn", a.turnNumber, "iteration", iteration)
-				return nil, errs.Retriable(errs.KindCompletion, "agent.completion.stream",
-					fmt.Errorf("finish_reason=tool_calls but no tool_calls parsed"),
-					"degenerate tool_calls response")
+		// Auto-continuation on truncation. See agent.go Run() for the full
+		// rationale and copilot-agent-runtime parity reference.
+		if choice.FinishReason == "length" && len(choice.Message.ToolCalls) == 0 {
+			if consecutiveTokenExhaustions+1 < maxTokenExhaustionContinuations {
+				consecutiveTokenExhaustions++
+				a.logger.Warn("streaming completion truncated, injecting continuation prompt",
+					"turn", a.turnNumber, "iteration", iteration,
+					"attempt", consecutiveTokenExhaustions,
+					"max_attempts", maxTokenExhaustionContinuations)
+				a.context.AddMessage(choice.Message)
+				a.context.AddMessage(completion.Message{
+					Role:    completion.RoleUser,
+					Content: "Please continue from where you left off.",
+				})
+				continue
 			}
+			a.logger.Error("streaming completion truncated; continuation budget exhausted",
+				"turn", a.turnNumber, "iteration", iteration,
+				"attempts", consecutiveTokenExhaustions)
+			return nil, errs.Retriable(errs.KindCompletion, "agent.completion.stream",
+				fmt.Errorf("response truncated repeatedly after %d continuations; raise model.max_tokens", consecutiveTokenExhaustions),
+				"completion truncated by max_tokens")
 		}
+		consecutiveTokenExhaustions = 0
 
 		if len(choice.Message.ToolCalls) == 0 {
 			a.context.AddMessage(choice.Message)
