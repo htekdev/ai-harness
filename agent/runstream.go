@@ -149,6 +149,26 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 
 		choice := resp.Choices[0]
 
+		// See agent.go Run() for the full rationale. Same truncation /
+		// degenerate-tool_calls detection in the streaming path.
+		switch choice.FinishReason {
+		case "length":
+			a.logger.Warn("streaming completion truncated by max_tokens",
+				"turn", a.turnNumber, "iteration", iteration,
+				"finish_reason", choice.FinishReason)
+			return nil, errs.Retriable(errs.KindCompletion, "agent.completion.stream",
+				fmt.Errorf("response truncated (finish_reason=length); raise model.max_tokens"),
+				"completion truncated by max_tokens")
+		case "tool_calls":
+			if len(choice.Message.ToolCalls) == 0 {
+				a.logger.Warn("streaming provider reported tool_calls but parsed none",
+					"turn", a.turnNumber, "iteration", iteration)
+				return nil, errs.Retriable(errs.KindCompletion, "agent.completion.stream",
+					fmt.Errorf("finish_reason=tool_calls but no tool_calls parsed"),
+					"degenerate tool_calls response")
+			}
+		}
+
 		if len(choice.Message.ToolCalls) == 0 {
 			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
