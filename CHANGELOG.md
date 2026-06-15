@@ -18,7 +18,7 @@ Pending items tracked in [#98 — Phase 6.2 Launch Sequence](https://github.com/
 
 ---
 
-## [0.6.0] — 2026-06-14
+## [0.6.0] — 2026-06-15
 
 > **Theme:** *Production hardening, declarative event sources, and the public docs site.*
 >
@@ -118,18 +118,68 @@ Pending items tracked in [#98 — Phase 6.2 Launch Sequence](https://github.com/
   ([#108](https://github.com/htekdev/ai-harness/pull/108),
   closes [#101](https://github.com/htekdev/ai-harness/issues/101))
 
+#### Phase 6.1 — Guides and reference (executable docs)
+
+- **Quickstart end-to-end executable** — every command in `getting-started/quickstart.md` runs against the shipped CLI exactly as written.
+  ([#113](https://github.com/htekdev/ai-harness/pull/113))
+- **`guides/writing-a-tool.md`** — Markdown-tool authoring loop with Starlark `script:` bodies, parameter typing, return shapes, and validation.
+  ([#112](https://github.com/htekdev/ai-harness/pull/112))
+- **`guides/writing-a-hook.md`** — full hook authoring guide: event catalog, payload shapes, decision contract (`allow`/`block`/`modify`), `when:` predicates, priority bands.
+  ([#114](https://github.com/htekdev/ai-harness/pull/114))
+- **`guides/writing-a-context.md`** — context-source authoring guide.
+  ([#117](https://github.com/htekdev/ai-harness/pull/117))
+- **`guides/deployment.md`** — Docker, systemd, Compose, secret handling, and `harness serve` operational guidance.
+  ([#118](https://github.com/htekdev/ai-harness/pull/118))
+- **`guides/observability.md`** — local OTel collector, span tree, attribute reference, trace-correlated logs, cost telemetry, smoke checklist.
+  ([#120](https://github.com/htekdev/ai-harness/pull/120))
+- **`reference/cli.md`** — exhaustive per-subcommand flag tables, global flags + `HARNESS_*` env vars, exit codes, serve-source env requirements.
+  ([#124](https://github.com/htekdev/ai-harness/pull/124))
+- **`examples/governed-agent.md`** — flagship 7-scenario governed-agent walkthrough end-to-end (hook block, registry deny, command_guard, network sandbox, span tree).
+  ([#125](https://github.com/htekdev/ai-harness/pull/125))
+- **`reference/harness-md.md`** — exhaustive `harness.md` frontmatter reference: every top-level field, retry bounds, `validate()` checks, `serve:` per-source schema, network defaults.
+  ([#129](https://github.com/htekdev/ai-harness/pull/129))
+- **`reference/tool-artifact.md`** — exhaustive per-tool `.md` schema, Parameter sub-schema, Starlark dialect constraints, 6-step runtime lifecycle, `async` reserved (cross-linked to #104).
+  ([#130](https://github.com/htekdev/ai-harness/pull/130))
+- **`reference/hook-artifact.md`** — exhaustive per-hook `.md` schema, full event catalog, canonical Starlark payload shapes, decision contract, priority bands.
+  ([#131](https://github.com/htekdev/ai-harness/pull/131))
+- **`reference/starlark-builtins.md`** — exhaustive catalog of every builtin registered by `scripting.Engine.makeBuiltins`: decision builtins, diagnostic builtins, full per-module tables (time/json/math/os/url/uuid/http/re/hash/base64/crypto/string/template/validate/set/cache/metrics/fs/ctx/exec/meta), hook conventions, intentionally-not-exposed surface.
+  ([#132](https://github.com/htekdev/ai-harness/pull/132))
+- **`project/contributing.md`** — full contributor manual: local dev setup, canonical local checks, branch/PR conventions, test bar, doc rules, release policy.
+  ([#133](https://github.com/htekdev/ai-harness/pull/133))
+- **`project/roadmap.md` + `project/adr-index.md`** — contributor-facing roadmap (Phase 1-6 with status legend, open questions) and ADR index with authoring conventions.
+  ([#134](https://github.com/htekdev/ai-harness/pull/134))
+
+#### Phase 7.1 — Claims verification (preview)
+
+- **Ralph-loop claims verifier at the delegation boundary** — verification primitive that re-checks a sub-agent's claims against ground-truth before the parent accepts results.
+  ([#110](https://github.com/htekdev/ai-harness/pull/110))
+
+#### Release infrastructure
+
+- **`CHANGELOG.md`** — Keep-a-Changelog 1.1.0 + SemVer policy, full v0.1.0 → v0.6.0 backfill, public-API surface clause for the pre-1.0 schema-evolution window.
+  ([#109](https://github.com/htekdev/ai-harness/pull/109))
+- **CI maintenance** — bump `actions/cache` 4→5, `actions/deploy-pages` 4→5, `actions/upload-pages-artifact` 3→5.
+  ([#126](https://github.com/htekdev/ai-harness/pull/126),
+  [#127](https://github.com/htekdev/ai-harness/pull/127),
+  [#128](https://github.com/htekdev/ai-harness/pull/128))
+
 ### Fixed
 
 - **Pre-flight tool-message ordering validation** in completion path — prevents
   malformed tool/assistant message sequences from reaching the model.
   ([#89](https://github.com/htekdev/ai-harness/pull/89),
   [#90](https://github.com/htekdev/ai-harness/pull/90))
+- **`finish_reason=length` truncation detection** — `agent.Run` / `agent.RunStream` now error retriably when the model returns `length` with degenerate `tool_calls`, instead of silently treating a truncated response as a final answer.
+  ([#121](https://github.com/htekdev/ai-harness/pull/121))
+- **Strict `finish_reason` guard at the agent boundary** — only `stop` / `end_turn` / `""` fall through as final answers; `content_filter` is now a hard error; unknown `finish_reason` with no `tool_calls` is a retriable error. Plus: `config/loader.go` now scans `.harness/{plugins,builtins,overrides}` for Shape A typed-artifact bundles via `ParseBundleMarkdown` (was previously ignored by `serve`/`validate` even though the artifact registry already loaded them).
+  ([#123](https://github.com/htekdev/ai-harness/pull/123))
 
 ### Stats
 
-- 25 merged PRs since `v0.5.0`.
+- ~50 merged PRs since `v0.5.0` (25 Phase 6.1 docs + reference, 8 fixes / hardening, dependency bumps, claims verification preview).
 - 19 Go packages, all tests passing on Linux / macOS / Windows on Go 1.25.
-- Five publicly browsable concept pages + Quickstart on the live docs site.
+- 7-check CI bar: Lint, Build, Test (ubuntu/macos/windows on Go 1.25), Build mdBook.
+- Public docs site live at <https://htekdev.github.io/ai-harness/> with full concept pages, all five guides, complete reference (CLI, `harness.md`, tool/hook artifact schemas, Starlark builtins), governed-agent example, contributor manual, roadmap, and ADR index.
 
 **Full changelog:** <https://github.com/htekdev/ai-harness/compare/v0.5.0...v0.6.0>
 
