@@ -254,3 +254,93 @@ func TestRun_TextOnlyStop_DefaultExitsImmediately(t *testing.T) {
 		t.Fatalf("unexpected response: %q", res.Response)
 	}
 }
+
+// finish_reason="tool_calls" with zero parsed ToolCalls is a wire-level
+// degeneracy (parser bug or provider format drift). The loop must NOT
+// silently exit — that would ship an empty/partial reply as the final
+// answer. Bounded re-prompt with a parser-failure-specific nudge.
+func TestRun_FinishReasonToolCalls_NoneParsed_NudgesAndRecovers(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n == 1 {
+			// Provider asserted tool_calls but parser surfaced none.
+			_ = json.NewEncoder(w).Encode(completion.Response{
+				Choices: []completion.Choice{{
+					Index: 0,
+					Message: completion.Message{
+						Role:    completion.RoleAssistant,
+						Content: "",
+					},
+					FinishReason: "tool_calls",
+				}},
+			})
+			return
+		}
+		// Recovery: model finalizes cleanly.
+		_ = json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{
+				Index: 0,
+				Message: completion.Message{
+					Role:    completion.RoleAssistant,
+					Content: "Recovered.",
+				},
+				FinishReason: "stop",
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	client := completion.NewClient(completion.ClientConfig{BaseURL: srv.URL, APIKey: "k", MaxRetries: 1})
+	a := New(Options{
+		Client:  client,
+		Context: agentctx.NewManager(agentctx.Config{SystemPrompt: "x"}),
+		// Note: no MaxEmptyToolCallContinuations — the degenerate tool_calls
+		// retry has its own dedicated budget independent of the
+		// planning-turn nudge.
+	})
+
+	res, err := a.Run(context.Background(), "do a thing")
+	if err != nil {
+		t.Fatalf("expected degenerate-tool_calls auto-recovery, got error: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("expected 2 model calls (degenerate + recovery), got %d", got)
+	}
+	if !strings.Contains(res.Response, "Recovered") {
+		t.Fatalf("expected recovery reply, got %q", res.Response)
+	}
+}
+
+// finish_reason="content_filter" must surface as an error so callers
+// know the response was redacted by the provider — not silently shipped
+// as an empty/filtered final answer.
+func TestRun_FinishReasonContentFilter_IsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{
+				Index: 0,
+				Message: completion.Message{
+					Role:    completion.RoleAssistant,
+					Content: "",
+				},
+				FinishReason: "content_filter",
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	client := completion.NewClient(completion.ClientConfig{BaseURL: srv.URL, APIKey: "k", MaxRetries: 1})
+	a := New(Options{
+		Client:  client,
+		Context: agentctx.NewManager(agentctx.Config{SystemPrompt: "x"}),
+	})
+
+	_, err := a.Run(context.Background(), "do a thing")
+	if err == nil {
+		t.Fatal("expected content_filter to surface as an error")
+	}
+	if k := errs.KindOf(err); k != errs.KindCompletion {
+		t.Fatalf("KindOf = %v, want KindCompletion", k)
+	}
+}

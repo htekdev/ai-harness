@@ -274,6 +274,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 	// but for reasoning models it's a mid-thought hand-off. Bounded;
 	// disabled (0) by default. See Options.MaxEmptyToolCallContinuations.
 	consecutiveEmptyToolCalls := 0
+	consecutiveDegenerateToolCalls := 0
 
 	for iteration := 0; iteration < a.maxToolIterations; iteration++ {
 		iterationsRun = iteration + 1
@@ -361,18 +362,92 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 				fmt.Errorf("response truncated repeatedly after %d continuations; raise model.max_tokens", consecutiveTokenExhaustions),
 				"completion truncated by max_tokens")
 		}
-		// Any non-truncation response resets the counter. Tool-call rounds
-		// reset too, mirroring chat-completion-client.ts:1725.
+		// Any non-truncation response resets the truncation counter. Tool-
+		// call rounds reset too, mirroring chat-completion-client.ts:1725.
 		consecutiveTokenExhaustions = 0
 
-		// If no tool calls, we have a final response — UNLESS the
-		// "smarter-model planning turn" recovery is enabled. With reasoning
-		// models, a finish_reason="stop" + content + zero tool_calls often
-		// means "I'm thinking out loud, please prompt me to continue,"
-		// not "here's my final answer." Bounded re-prompt with a system
-		// reminder to either act or finalize.
+		// Hector's "look deeper into finish_reason" mandate: do NOT collapse
+		// every "no tool_calls" case into a single exit branch. Different
+		// finish_reason values mean different things and demand different
+		// recovery strategies. Mapping (assistant message has no parsed
+		// tool_calls):
+		//
+		//   "tool_calls"     -> DEGENERATE. Provider asserted tool calls
+		//                       but the parser surfaced none (streaming
+		//                       merge bug, malformed args JSON, format
+		//                       drift on a new model). ALWAYS retry with a
+		//                       dedicated "emit your tool call" nudge —
+		//                       independent of the planning-turn budget,
+		//                       because this is a parser/wire-level
+		//                       failure, not a behavioral one. Bounded by
+		//                       maxDegenerateToolCallRetries to prevent
+		//                       infinite loops if the provider keeps
+		//                       lying.
+		//   "stop"           -> Final answer (per OpenAI spec). For
+		//   "end_turn"          reasoning-heavy models, this is also how
+		//   "" (legacy)         a planning hand-off arrives ("Let me start
+		//                       by reading the README, then..."). When
+		//                       Options.MaxEmptyToolCallContinuations > 0,
+		//                       nudge once-per-budget with "act or
+		//                       finalize." Default 0 preserves strict
+		//                       OpenAI behavior.
+		//   "content_filter" -> Provider redacted the response. Surface
+		//                       as an error so callers can react; do not
+		//                       silently ship empty content.
+		//   anything else    -> Treat as final answer with WARN log so
+		//                       the next unknown finish_reason from a new
+		//                       model surfaces in telemetry.
+		const maxDegenerateToolCallRetries = 2
 		if len(choice.Message.ToolCalls) == 0 {
-			if choice.FinishReason == "stop" &&
+			fr := choice.FinishReason
+
+			// Case 1: provider claimed tool_calls but parser surfaced none.
+			if fr == "tool_calls" {
+				if consecutiveDegenerateToolCalls < maxDegenerateToolCallRetries {
+					consecutiveDegenerateToolCalls++
+					a.logger.Warn("finish_reason=tool_calls but no tool_calls parsed; nudging",
+						"turn", a.turnNumber, "iteration", iteration,
+						"attempt", consecutiveDegenerateToolCalls,
+						"max_attempts", maxDegenerateToolCallRetries,
+						"content_len", len(choice.Message.Content),
+						"content_preview", truncateForLog(choice.Message.Content, 120))
+					a.context.AddMessage(choice.Message)
+					a.context.AddMessage(completion.Message{
+						Role: completion.RoleUser,
+						Content: "Your previous turn was marked as a tool call (finish_reason=tool_calls) " +
+							"but no tool was actually emitted. Please call the appropriate tool now " +
+							"with valid JSON arguments, or give a final answer if no tool is needed.",
+					})
+					continue
+				}
+				a.logger.Error("finish_reason=tool_calls degenerate; budget exhausted",
+					"turn", a.turnNumber, "iteration", iteration,
+					"attempts", consecutiveDegenerateToolCalls)
+				return nil, errs.Retriable(errs.KindCompletion, "agent.completion",
+					fmt.Errorf("provider repeatedly returned finish_reason=tool_calls with no parsed tool_calls (%d attempts)", consecutiveDegenerateToolCalls),
+					"degenerate tool_calls response")
+			}
+
+			// Case 2: provider redacted the response.
+			if fr == "content_filter" {
+				a.logger.Error("completion blocked by content filter",
+					"turn", a.turnNumber, "iteration", iteration,
+					"content_len", len(choice.Message.Content))
+				return nil, errs.Newf(errs.KindCompletion, "agent.completion",
+					"completion blocked by provider content filter")
+			}
+
+			// Case 3: stop / end_turn / "" / unknown — treat as a (potential)
+			// final answer. Apply the planning-turn nudge if configured.
+			isStopLike := fr == "stop" || fr == "end_turn" || fr == ""
+			if !isStopLike {
+				a.logger.Warn("unknown finish_reason; treating as final response",
+					"turn", a.turnNumber, "iteration", iteration,
+					"finish_reason", fr,
+					"content_len", len(choice.Message.Content))
+			}
+
+			if isStopLike &&
 				strings.TrimSpace(choice.Message.Content) != "" &&
 				a.maxEmptyToolCallContinuations > 0 &&
 				consecutiveEmptyToolCalls < a.maxEmptyToolCallContinuations {
@@ -381,7 +456,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 					"turn", a.turnNumber, "iteration", iteration,
 					"attempt", consecutiveEmptyToolCalls,
 					"max_attempts", a.maxEmptyToolCallContinuations,
-					"finish_reason", choice.FinishReason,
+					"finish_reason", fr,
 					"content_len", len(choice.Message.Content),
 					"content_preview", truncateForLog(choice.Message.Content, 120))
 				a.context.AddMessage(choice.Message)
@@ -393,21 +468,23 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 				})
 				continue
 			}
-			// Diagnostic: log every clean exit so we can correlate with
-			// model upgrades / specific finish_reason values when the agent
-			// appears to exit prematurely.
+
+			// Diagnostic: every clean exit logs finish_reason + content
+			// shape so a future "premature exit" report comes with data.
 			a.logger.Info("turn complete: text-only response",
 				"turn", a.turnNumber, "iteration", iteration,
-				"finish_reason", choice.FinishReason,
+				"finish_reason", fr,
 				"content_len", len(choice.Message.Content),
-				"empty_continuations_used", consecutiveEmptyToolCalls)
+				"empty_continuations_used", consecutiveEmptyToolCalls,
+				"degenerate_retries_used", consecutiveDegenerateToolCalls)
 			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
 			completed = true
 			break
 		}
-		// Tool-call response — reset both recovery counters.
+		// Tool-call response — reset all recovery counters.
 		consecutiveEmptyToolCalls = 0
+		consecutiveDegenerateToolCalls = 0
 
 		// Add assistant message with tool calls to context
 		a.context.AddMessage(choice.Message)

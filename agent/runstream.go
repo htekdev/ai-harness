@@ -101,6 +101,8 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 	const maxTokenExhaustionContinuations = 3
 	consecutiveTokenExhaustions := 0
 	consecutiveEmptyToolCalls := 0
+	consecutiveDegenerateToolCalls := 0
+	const maxDegenerateToolCallRetries = 2
 
 	for iteration := 0; iteration < a.maxToolIterations; iteration++ {
 		iterationsRun = iteration + 1
@@ -181,8 +183,54 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 		}
 		consecutiveTokenExhaustions = 0
 
+		// Exhaustive finish_reason handling — see agent.go Run() for the
+		// full rationale (Hector's "look deeper into finish_reason" mandate).
 		if len(choice.Message.ToolCalls) == 0 {
-			if choice.FinishReason == "stop" &&
+			fr := choice.FinishReason
+
+			if fr == "tool_calls" {
+				if consecutiveDegenerateToolCalls < maxDegenerateToolCallRetries {
+					consecutiveDegenerateToolCalls++
+					a.logger.Warn("streaming finish_reason=tool_calls but no tool_calls parsed; nudging",
+						"turn", a.turnNumber, "iteration", iteration,
+						"attempt", consecutiveDegenerateToolCalls,
+						"max_attempts", maxDegenerateToolCallRetries,
+						"content_len", len(choice.Message.Content),
+						"content_preview", truncateForLog(choice.Message.Content, 120))
+					a.context.AddMessage(choice.Message)
+					a.context.AddMessage(completion.Message{
+						Role: completion.RoleUser,
+						Content: "Your previous turn was marked as a tool call (finish_reason=tool_calls) " +
+							"but no tool was actually emitted. Please call the appropriate tool now " +
+							"with valid JSON arguments, or give a final answer if no tool is needed.",
+					})
+					continue
+				}
+				a.logger.Error("streaming finish_reason=tool_calls degenerate; budget exhausted",
+					"turn", a.turnNumber, "iteration", iteration,
+					"attempts", consecutiveDegenerateToolCalls)
+				return nil, errs.Retriable(errs.KindCompletion, "agent.completion.stream",
+					fmt.Errorf("provider repeatedly returned finish_reason=tool_calls with no parsed tool_calls (%d attempts)", consecutiveDegenerateToolCalls),
+					"degenerate tool_calls response")
+			}
+
+			if fr == "content_filter" {
+				a.logger.Error("streaming completion blocked by content filter",
+					"turn", a.turnNumber, "iteration", iteration,
+					"content_len", len(choice.Message.Content))
+				return nil, errs.Newf(errs.KindCompletion, "agent.completion.stream",
+					"completion blocked by provider content filter")
+			}
+
+			isStopLike := fr == "stop" || fr == "end_turn" || fr == ""
+			if !isStopLike {
+				a.logger.Warn("streaming unknown finish_reason; treating as final response",
+					"turn", a.turnNumber, "iteration", iteration,
+					"finish_reason", fr,
+					"content_len", len(choice.Message.Content))
+			}
+
+			if isStopLike &&
 				strings.TrimSpace(choice.Message.Content) != "" &&
 				a.maxEmptyToolCallContinuations > 0 &&
 				consecutiveEmptyToolCalls < a.maxEmptyToolCallContinuations {
@@ -191,7 +239,7 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 					"turn", a.turnNumber, "iteration", iteration,
 					"attempt", consecutiveEmptyToolCalls,
 					"max_attempts", a.maxEmptyToolCallContinuations,
-					"finish_reason", choice.FinishReason,
+					"finish_reason", fr,
 					"content_len", len(choice.Message.Content),
 					"content_preview", truncateForLog(choice.Message.Content, 120))
 				a.context.AddMessage(choice.Message)
@@ -203,17 +251,20 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 				})
 				continue
 			}
+
 			a.logger.Info("turn complete: streaming text-only response",
 				"turn", a.turnNumber, "iteration", iteration,
-				"finish_reason", choice.FinishReason,
+				"finish_reason", fr,
 				"content_len", len(choice.Message.Content),
-				"empty_continuations_used", consecutiveEmptyToolCalls)
+				"empty_continuations_used", consecutiveEmptyToolCalls,
+				"degenerate_retries_used", consecutiveDegenerateToolCalls)
 			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
 			completed = true
 			break
 		}
 		consecutiveEmptyToolCalls = 0
+		consecutiveDegenerateToolCalls = 0
 
 		a.context.AddMessage(choice.Message)
 
