@@ -252,7 +252,7 @@ func (c *Config) Validate() error {
 	switch mode := strings.TrimSpace(c.ExitPolicy.Mode); mode {
 	case "", "natural", "done_tool", "hook", "hybrid":
 	default:
-		issues = append(issues, fmt.Sprintf("exit_policy.mode %q must be natural|done_tool|hook|hybrid", c.ExitPolicy.Mode))
+		issues = append(issues, fmt.Sprintf("exit_policy.mode %q must be natural|done_tool|hook|hybrid", mode))
 	}
 	if c.ExitPolicy.MaxIterations < 0 {
 		issues = append(issues, "exit_policy.max_iterations must be >= 0")
@@ -260,7 +260,7 @@ func (c *Config) Validate() error {
 	switch mode := strings.TrimSpace(c.ExitPolicy.OnMaxIterations); mode {
 	case "", "error", "warn_and_exit", "continue_with_warning":
 	default:
-		issues = append(issues, fmt.Sprintf("exit_policy.on_max_iterations %q must be error|warn_and_exit|continue_with_warning", c.ExitPolicy.OnMaxIterations))
+		issues = append(issues, fmt.Sprintf("exit_policy.on_max_iterations %q must be error|warn_and_exit|continue_with_warning", mode))
 	}
 
 	if !c.ToolsPolicy.IsEmpty() {

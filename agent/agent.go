@@ -484,7 +484,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 		}
 	}
 
-	if completed || a.onMaxIterations != "error" {
+	if completed || a.onMaxIterations == "warn_and_exit" || a.onMaxIterations == "continue_with_warning" {
 		// Fire turn.end hook
 		hookResult = a.hooks.Dispatch(turnCtx, hooks.EventTurnEnd, result)
 		if hookResult.Action == hooks.ActionBlock {
