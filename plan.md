@@ -23,6 +23,7 @@ This tracker captures Hector's 2026-05-21 AI Harness brainstorm and the follow-u
 - https://github.com/htekdev/ai-harness/issues/14
 - https://github.com/htekdev/ai-harness/issues/15
 - https://github.com/htekdev/ai-harness/issues/16
+- https://github.com/htekdev/ai-harness/issues/102 (product naming research + rebrand plan)
 
 ### Long-running primitive follow-ups
 - https://github.com/htekdev/ai-harness/issues/18 (event store)
@@ -38,6 +39,20 @@ Initial scaffold target: a file-backed events package on the `copilot/long-runni
 
 ## Notes
 Pi is the closest public benchmark for the minimal-harness philosophy, but AI Harness should go further on typed artifacts, per-turn evaluation, conditional composition, and explicit context observability.
+
+## Naming research snapshot (issue #102, 2026-06-14)
+
+- Keep **Harness as Code** as category language.
+- Keep shipping as **ai-harness** for Phase 6 / v0.6.0 (do not block launch on rename).
+- Research shortlist outcome:
+  - **#1: Cinch** (strongest fit and lowest observed category collision)
+  - **#2: Ward** (backup if #1 fails legal/namespace checks)
+  - **#3: Warden** (usable but collision risk with Sentry's Warden)
+- Explicitly dropped from shortlist due to collisions/saturation: Trellis, Bridle, Helm, Anchor, Forge, Cortex, Tether.
+- Rename decision gate before v1 cut:
+  1. namespace/domain checks (npm, PyPI, GitHub, `.dev/.io/.run/.sh`)
+  2. trademark screen (USPTO TESS)
+  3. final sign-off on top candidate
 
 ## Governance engine (Phase 2+)
 
