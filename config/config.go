@@ -53,12 +53,16 @@ type MetaBuiltinConfig struct {
 
 // DelegationConfig defines delegation behavior.
 type DelegationConfig struct {
-	MaxDepth           int                 `yaml:"max_depth,omitempty" json:"max_depth,omitempty"`
-	MaxConcurrent      int                 `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
-	IterationsPerDepth []int               `yaml:"iterations_per_depth,omitempty" json:"iterations_per_depth,omitempty"`
-	Verify             string              `yaml:"verify,omitempty" json:"verify,omitempty"`
-	MaxVerifyRetries   int                 `yaml:"max_verify_retries,omitempty" json:"max_verify_retries,omitempty"`
-	VerifyPolicy       *VerifyPolicyConfig `yaml:"verify_policy,omitempty" json:"verify_policy,omitempty"`
+	MaxDepth           int    `yaml:"max_depth,omitempty" json:"max_depth,omitempty"`
+	MaxConcurrent      int    `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
+	IterationsPerDepth []int  `yaml:"iterations_per_depth,omitempty" json:"iterations_per_depth,omitempty"`
+	Verify             string `yaml:"verify,omitempty" json:"verify,omitempty"`
+	// MaxVerifyRetries preserves the existing delegation-level retry knob used
+	// by delegate requests (`max_verify_retries`). When both this field and
+	// VerifyPolicy.MaxRetries are present, MaxVerifyRetries is the canonical
+	// value for delegation runtime defaults.
+	MaxVerifyRetries int                 `yaml:"max_verify_retries,omitempty" json:"max_verify_retries,omitempty"`
+	VerifyPolicy     *VerifyPolicyConfig `yaml:"verify_policy,omitempty" json:"verify_policy,omitempty"`
 }
 
 // ModelConfig defines the LLM provider and parameters.

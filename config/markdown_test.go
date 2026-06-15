@@ -138,7 +138,6 @@ delegation:
       return json.encode({"verified": True})
   max_verify_retries: 2
   verify_policy:
-    max_retries: 2
     on_exhausted: error
 ---
 `)
