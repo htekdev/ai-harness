@@ -12,6 +12,9 @@ func TestCoreIdentityLevels(t *testing.T) {
 	if got := CoreIdentity("enabled"); got == "" {
 		t.Fatal("expected enabled core identity content")
 	}
+	if got := CoreIdentity("unknown-level"); got != CoreIdentity("enabled") {
+		t.Fatalf("expected unknown level to fallback to enabled identity, got %q", got)
+	}
 }
 
 func TestComposeSystemPrompt(t *testing.T) {

@@ -66,9 +66,9 @@ Golden path:
 	coreIdentity := harness.CoreIdentity(cfg.Context.CoreIdentity)
 	composedPrompt := harness.ComposeSystemPrompt(cfg.Context.SystemPrompt, cfg.Context.CoreIdentity)
 	fmt.Printf("  Prompt:   ~%d tokens (%d user + %d core_identity)\n",
-		estimateTokensRough(composedPrompt),
-		estimateTokensRough(cfg.Context.SystemPrompt),
-		estimateTokensRough(coreIdentity),
+		roughTokenCount(composedPrompt),
+		roughTokenCount(cfg.Context.SystemPrompt),
+		roughTokenCount(coreIdentity),
 	)
 	fmt.Printf("  Identity: %s\n", strings.ToLower(strings.TrimSpace(cfg.Context.CoreIdentity)))
 
@@ -205,7 +205,7 @@ Golden path:
 	return nil
 }
 
-func estimateTokensRough(s string) int {
+func roughTokenCount(s string) int {
 	if s == "" {
 		return 0
 	}
