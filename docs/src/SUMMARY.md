@@ -21,6 +21,7 @@
 - [Writing a Hook](./guides/writing-a-hook.md)
 - [Writing a Context](./guides/writing-a-context.md)
 - [Writing a Sub-Agent](./guides/writing-a-sub-agent.md)
+- [Writing a Policy](./guides/writing-a-policy.md)
 - [Production Deployment](./guides/deployment.md)
 - [Observability with OpenTelemetry](./guides/observability.md)
 - [Network Sandboxing](./guides/network-sandbox.md)
