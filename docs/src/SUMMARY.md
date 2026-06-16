@@ -17,6 +17,7 @@
 
 # Guides
 
+- [Your First Governed Agent (End-to-End)](./guides/your-first-governed-agent.md)
 - [Writing a Tool](./guides/writing-a-tool.md)
 - [Writing a Hook](./guides/writing-a-hook.md)
 - [Writing a Context](./guides/writing-a-context.md)
