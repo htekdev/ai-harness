@@ -235,9 +235,13 @@ mutation of the harness process is intentionally not exposed.
 ## `http`
 
 Outbound HTTP. Subject to the harness's
-[network sandbox](./harness-md.md#network) — every request's
-hostname is matched against `network.allowed_domains` before the
-socket is opened. Default policy is **deny-all**.
+[network sandbox](./harness-md.md#network) — when
+`network.allowed_domains` is non-empty, every request's hostname is
+matched against the allowlist before the socket is opened. When
+`network` is omitted (or `allowed_domains` is empty), requests are
+allowed to any host for backward compatibility with pre-5.5 configs.
+See the [Network Sandboxing](../guides/network-sandbox.md) guide for
+the full posture, matching rules, and migration recipe.
 
 | Call                                                       | Returns                                                                                                  |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
