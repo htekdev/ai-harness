@@ -649,11 +649,12 @@ func decodeControlFlowRequest(payload any) (Request, error) {
 }
 
 func controlFlowKey(req Request) string {
-	req.ID = ""
-	req.ParentID = ""
-	data, err := json.Marshal(req)
+	key := req
+	key.ID = ""
+	key.ParentID = ""
+	data, err := json.Marshal(key)
 	if err != nil {
-		return fmt.Sprintf("%s|%s", req.Agent, req.Task)
+		return fmt.Sprintf("%s|%s", key.Agent, key.Task)
 	}
 	return string(data)
 }

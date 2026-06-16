@@ -70,6 +70,8 @@ func controlFlowStateFromContext(ctx context.Context) *controlFlowState {
 	return state
 }
 
+// clone deep-copies the state so each derived context gets its own immutable
+// control-flow snapshot, including an isolated seen-set map.
 func (s *controlFlowState) clone() *controlFlowState {
 	clone := &controlFlowState{
 		remaining: s.remaining,

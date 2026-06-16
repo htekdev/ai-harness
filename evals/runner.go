@@ -375,6 +375,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 	})
 
 	// Set up delegation if configured
+	var delegator *delegation.Delegator
 	if c.Setup.Delegation != nil {
 		maxDepth := c.Setup.Delegation.MaxDepth
 		if maxDepth == 0 {
@@ -385,7 +386,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 			itersPerDepth = []int{10, 5, 3}
 		}
 
-		delegator := delegation.NewDelegator(delegation.DelegatorConfig{
+		delegator = delegation.NewDelegator(delegation.DelegatorConfig{
 			Client:             client,
 			Engine:             engine,
 			HookSystem:         hookSystem,

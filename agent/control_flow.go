@@ -29,6 +29,8 @@ type StopPayload struct {
 	Usage        completion.Usage `json:"usage,omitempty"`
 }
 
+// handleAgentStop dispatches the agent.stop hook and mutates result in place so
+// the accepted turn output reflects any modify/delegate control-flow decision.
 func (a *Agent) handleAgentStop(ctx context.Context, payload StopPayload, result *TurnResult) error {
 	hookResult := a.hooks.Dispatch(ctx, hooks.EventAgentStop, &payload)
 	if hookResult.Action == hooks.ActionBlock {
