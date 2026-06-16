@@ -72,7 +72,7 @@ also available — but `isinstance` is **not** part of Starlark; use
 
 ## Decision built-ins (hooks)
 
-Hooks must return a decision. The three decision constructors below
+Hooks must return a decision. The four decision constructors below
 build the canonical `{action, ...}` value that the runtime understands.
 Returning a bare dict with the same shape is also accepted, but
 prefer the constructors — they are typed and validated at call time.
@@ -111,6 +111,18 @@ the original event payload. Shape and field constraints are
 event-specific — see [Hook Artifact Schema](./hook-artifact.md) for
 the canonical payload shape per event. Equivalent to returning
 `{"action": "modify", "payload": {...}}`.
+
+### `delegate(request)`
+
+```python
+delegate(request)
+delegate(request={...})
+```
+
+Returns the *delegate* decision. The runtime redirects control flow into a new
+delegation request. This is currently supported on `agent.stop` and
+`delegation.post` hooks. Equivalent to returning
+`{"action": "delegate", "request": {...}}`.
 
 > Decision built-ins are also callable from tools, but the runtime
 > ignores their return value outside a hook context. Treat them as

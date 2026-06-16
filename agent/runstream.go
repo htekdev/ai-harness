@@ -188,8 +188,14 @@ func (a *Agent) RunStream(ctx context.Context, userMessage string, onDelta Strea
 		}
 
 		if len(choice.Message.ToolCalls) == 0 {
-			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
+			if err := a.handleAgentStop(turnCtx, newStopPayload(turnCtx, choice.FinishReason, iteration+1, result), result); err != nil {
+				return nil, err
+			}
+			a.context.AddMessage(completion.Message{
+				Role:    completion.RoleAssistant,
+				Content: result.Response,
+			})
 			completed = true
 			break
 		}

@@ -430,6 +430,20 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 		Context:           ctxMgr,
 		Logger:            slog.Default().With("component", "eval", "case", c.Name),
 		MaxToolIterations: 10,
+		StopDelegate: func(ctx context.Context, request any) (*agent.TurnResult, error) {
+			if delegator == nil {
+				return nil, fmt.Errorf("agent.stop requested delegation but no delegator is configured")
+			}
+			result, err := delegator.ExecuteControlFlow(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			return &agent.TurnResult{
+				Response:    result.Response,
+				ToolCalls:   result.ToolCalls,
+				ToolResults: result.ToolResults,
+			}, nil
+		},
 	})
 
 	// Start session

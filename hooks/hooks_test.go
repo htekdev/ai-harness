@@ -95,6 +95,41 @@ func TestModifyAction(t *testing.T) {
 	}
 }
 
+func TestDelegateActionShortCircuits(t *testing.T) {
+	sys := NewSystem()
+
+	secondCalled := false
+	sys.Register(Registration{
+		Name:     "delegate",
+		Event:    EventAgentStop,
+		Priority: 1,
+		Handler: func(ctx context.Context, event Event, payload any) Result {
+			return Result{Action: ActionDelegate, Delegate: map[string]any{"task": "follow-up"}}
+		},
+	})
+	sys.Register(Registration{
+		Name:     "second",
+		Event:    EventAgentStop,
+		Priority: 10,
+		Handler: func(ctx context.Context, event Event, payload any) Result {
+			secondCalled = true
+			return Result{Action: ActionContinue}
+		},
+	})
+
+	result := sys.Dispatch(context.Background(), EventAgentStop, "done")
+	if result.Action != ActionDelegate {
+		t.Fatalf("expected ActionDelegate, got %d", result.Action)
+	}
+	if secondCalled {
+		t.Fatal("second handler should not have been called after delegate")
+	}
+	request, ok := result.Delegate.(map[string]any)
+	if !ok || request["task"] != "follow-up" {
+		t.Fatalf("unexpected delegate payload: %#v", result.Delegate)
+	}
+}
+
 func TestPriorityOrdering(t *testing.T) {
 	sys := NewSystem()
 
@@ -195,7 +230,7 @@ func TestHandlersFor(t *testing.T) {
 }
 
 func TestValidEventsIncludesDelegateHooks(t *testing.T) {
-	if !IsValidEvent(string(EventDelegatePre)) || !IsValidEvent(string(EventDelegatePost)) {
+	if !IsValidEvent(string(EventDelegatePre)) || !IsValidEvent(string(EventDelegatePost)) || !IsValidEvent(string(EventAgentStop)) {
 		t.Fatalf("delegate events should be valid: %v", ValidEvents())
 	}
 }

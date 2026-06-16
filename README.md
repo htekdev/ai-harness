@@ -1039,9 +1039,10 @@ Hooks are part of the control plane and run at explicit lifecycle boundaries in 
 | --- | --- | --- |
 | Session | `session.start` / `session.end` | Session bootstrap and teardown policies |
 | Turn | `turn.start` / `turn.end` | Input normalization and turn-level governance |
+| Control flow | `agent.stop` | Intercept loop exit and optionally redirect into a follow-up delegation |
 | Completion | `completion.pre` / `completion.post` | Gate and shape model request/response |
 | Tool execution | `tool.pre` / `tool.post` | Enforce tool policy before/after execution |
-| Delegation | `delegation.pre` / `delegation.post` | Gate recursive delegation and post-process results |
+| Delegation | `delegation.pre` / `delegation.post` / `delegation.post_verify` | Gate recursive delegation, verify claims, and post-process results |
 | Error | `error` | Observe/report runtime failures |
 
 Extension namespaces:

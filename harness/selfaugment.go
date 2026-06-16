@@ -105,7 +105,7 @@ func createHookDefinition() tools.Definition {
 			{Name: "name", Type: tools.TypeString, Required: true,
 				Description: "Hook handler name. Lowercase, digits, underscore, hyphen only (1-64 chars)."},
 			{Name: "event", Type: tools.TypeString, Required: true,
-				Description: "Lifecycle event to fire on. One of: session.start, session.end, turn.start, turn.end, tool.pre, tool.post, completion.pre, completion.post, delegation.pre, delegation.post, error."},
+				Description: "Lifecycle event to fire on. One of: session.start, session.end, turn.start, turn.end, agent.stop, tool.pre, tool.post, completion.pre, completion.post, delegation.pre, delegation.post, delegation.post_verify, error."},
 			{Name: "script", Type: tools.TypeString, Required: true,
 				Description: "Starlark source code. Must define `def handle(event): ...` and return one of allow(), block(reason), or modify(...)."},
 			{Name: "when", Type: tools.TypeString, Required: false,
@@ -229,7 +229,7 @@ func (h *Harness) handleCreateHook(_ context.Context, raw json.RawMessage) (stri
 		return "", fmt.Errorf("invalid hook name %q: must match ^[a-z0-9][a-z0-9_-]{0,63}$", args.Name)
 	}
 	if !hooks.IsValidEvent(args.Event) {
-		return "", fmt.Errorf("invalid event %q (use session.start | session.end | turn.start | turn.end | tool.pre | tool.post | completion.pre | completion.post | delegation.pre | delegation.post | error)", args.Event)
+		return "", fmt.Errorf("invalid event %q (use session.start | session.end | turn.start | turn.end | agent.stop | tool.pre | tool.post | completion.pre | completion.post | delegation.pre | delegation.post | delegation.post_verify | error)", args.Event)
 	}
 	if !strings.Contains(args.Script, "def handle") {
 		return "", fmt.Errorf("script must define a `def handle(event)` entrypoint")

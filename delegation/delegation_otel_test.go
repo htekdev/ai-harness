@@ -2,13 +2,19 @@ package delegation
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/htekdev/ai-harness/completion"
+	"github.com/htekdev/ai-harness/hooks"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Phase 5.2 PR-B: span instrumentation for delegation.Execute.
@@ -92,5 +98,83 @@ func TestExecute_EmitsDelegationSpan_RecordsErrorOnDepthLimit(t *testing.T) {
 	}
 	if !foundExc {
 		t.Errorf("expected exception event for depth limit error")
+	}
+}
+
+func TestExecute_UsesSpanIDsForDelegationCorrelation(t *testing.T) {
+	exp := newDelegationSpanRecorder(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{
+				Message:      completion.Message{Role: completion.RoleAssistant, Content: "done"},
+				FinishReason: "stop",
+			}},
+		})
+	}))
+	defer server.Close()
+
+	var requestID, requestParentID, resultID string
+	hookSystem := hooks.NewSystem()
+	hookSystem.Register(hooks.Registration{
+		Name:  "capture-pre",
+		Event: hooks.EventDelegatePre,
+		Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
+			req := payload.(*Request)
+			requestID = req.ID
+			requestParentID = req.ParentID
+			return hooks.Result{Action: hooks.ActionContinue}
+		},
+	})
+	hookSystem.Register(hooks.Registration{
+		Name:  "capture-post",
+		Event: hooks.EventDelegatePost,
+		Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
+			resultID = payload.(*Result).ID
+			return hooks.Result{Action: hooks.ActionContinue}
+		},
+	})
+
+	d := NewDelegator(DelegatorConfig{
+		Client: completion.NewClient(completion.ClientConfig{
+			BaseURL: server.URL,
+			APIKey:  "test-key",
+		}),
+		HookSystem: hookSystem,
+	})
+
+	ctx, parent := otel.Tracer(tracerName).Start(context.Background(), "parent")
+	_, err := d.Execute(ctx, Request{
+		Task: "trace me",
+		Tools: []ToolSpec{{
+			Name:        "noop",
+			Description: "No-op tool",
+			Script:      "def run(args):\n    return \"ok\"",
+		}},
+	})
+	parentID := parent.SpanContext().SpanID().String()
+	parent.End()
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	spans := exp.GetSpans()
+	var delegationSpanID string
+	for _, span := range spans {
+		if span.Name == "delegation.execute" {
+			delegationSpanID = span.SpanContext.SpanID().String()
+			break
+		}
+	}
+	if delegationSpanID == "" {
+		t.Fatal("expected delegation.execute span")
+	}
+	if requestID != delegationSpanID || resultID != delegationSpanID {
+		t.Fatalf("expected request/result ids %q, got request=%q result=%q", delegationSpanID, requestID, resultID)
+	}
+	if requestParentID != parentID {
+		t.Fatalf("expected parent id %q, got %q", parentID, requestParentID)
+	}
+	if requestID == (trace.SpanID{}).String() {
+		t.Fatal("expected non-zero span id")
 	}
 }

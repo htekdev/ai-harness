@@ -20,6 +20,33 @@ This is the live demonstration of the **self-augmenting harness** concept:
 the agent can mint new tools at runtime via `meta.register_tool`, but every
 mint is governed by the same policy hooks that govern static tools.
 
+## Declarative agent chains
+
+The same profile can express `A -> B -> on-complete -> C` without imperative
+orchestration in a tool body:
+
+```yaml
+---
+event: delegation.post
+priority: 50
+script: |
+  def handle(event, payload):
+      return delegate({
+          "task": "Review the completed implementation and list any gaps.",
+          "agent": "reviewer",
+      })
+---
+```
+
+Pair that with a normal `delegate({... "agent": "implementer" ...})` call and
+the runtime performs:
+
+```text
+Parent agent -> implementer -> delegation.post hook -> reviewer
+```
+
+See `docs/src/reference/control-flow-hooks.md` for the full contract.
+
 ---
 
 ## Run it

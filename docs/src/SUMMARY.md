@@ -34,6 +34,7 @@
 - [Tool Artifact Schema](./reference/tool-artifact.md)
 - [Hook Artifact Schema](./reference/hook-artifact.md)
 - [Sub-Agent Artifact Schema](./reference/sub-agent-artifact.md)
+- [Control-Flow Hooks](./reference/control-flow-hooks.md)
 - [CLI](./reference/cli.md)
 - [Starlark Built-ins](./reference/starlark-builtins.md)
 

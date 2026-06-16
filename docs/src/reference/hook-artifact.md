@@ -101,13 +101,14 @@ The full catalog supported by `hooks.IsValidEvent`:
 | `session.end`             | The session terminates (clean or error).                            | `None` — informational only.                                                  |
 | `turn.start`              | Before the model is called for a new turn.                          | The user message as a string.                                                 |
 | `turn.end`                | After the model produces its turn output.                           | The turn result (text + tool calls).                                          |
+| `agent.stop`              | Right before the agent accepts a final no-tool-call response and exits the loop. | `{id, finish_reason, iteration, response, tool_calls, tool_results, usage}`. |
 | `tool.pre`                | After argument validation, before `run(args)`.                      | `{id, name, arguments}`. Use `payload["args"]` once decoded.                  |
 | `tool.post`               | After `run(args)` returns.                                          | `{call_id, name, content, is_error, result}`.                                 |
 | `completion.pre`          | Before the completion request is sent to the provider.              | Provider request object (model, messages, tools).                             |
 | `completion.post`         | After the provider returns a completion response.                   | Provider response (choices, usage, finish_reason).                            |
-| `delegation.pre`          | Before a sub-agent delegation starts.                               | `{agent, prompt, depth, ...}`.                                                |
-| `delegation.post`         | After a sub-agent delegation completes.                             | `{agent, result, depth, ...}`.                                                |
-| `delegation.post_verify`  | After `delegation.post` when the delegation declares `verify:`. Hooks may `block(reason)` to trigger a Ralph-loop retry up to `MaxVerifyRetries`. See [#103](https://github.com/htekdev/ai-harness/issues/103). | Same shape as `delegation.post` plus `attempt` count. |
+| `delegation.pre`          | Before a sub-agent delegation starts.                               | `{id, parent_id, task, agent, model, tools, hooks, system_prompt, ...}`.     |
+| `delegation.post`         | After a sub-agent delegation completes.                             | `{id, parent_id, response, tool_calls, tool_results}`.                        |
+| `delegation.post_verify`  | After `delegation.post` when the delegation declares `verify:`. Hooks may `block(reason)` to trigger a Ralph-loop retry up to `MaxVerifyRetries`. See [#103](https://github.com/htekdev/ai-harness/issues/103). | Same shape as `delegation.post`. |
 | `error`                   | An unrecoverable error surfaces in the agent loop.                  | Error envelope.                                                              |
 
 In addition, two **prefixes** are accepted as valid event names:
@@ -178,12 +179,13 @@ def handle(event, payload):
 
 ### Decision constructors
 
-Every `handle` invocation must return one of three decisions:
+Every `handle` invocation must return one of four decisions:
 
 | Constructor                          | Meaning                                                       |
 |--------------------------------------|---------------------------------------------------------------|
 | `allow()`                            | Pass through. Equivalent to `{"action": "allow"}`.            |
 | `block(reason)`                      | Reject. Short-circuits the chain. The `reason` string is surfaced to the agent as the tool error / turn rejection message. Equivalent to `{"action": "block", "reason": "..."}`. |
+| `delegate(request)`                  | Redirect control flow into a new delegation request. Supported on `agent.stop` and `delegation.post`. Equivalent to `{"action": "delegate", "request": {...}}`. |
 | `modify(new_payload)`                | Rewrite the payload in place; downstream hooks and the underlying operation see the new value. Equivalent to `{"action": "modify", "payload": {...}}`. |
 
 A dict return is also accepted:
@@ -195,11 +197,16 @@ return {"action": "block", "reason": "path traversal not allowed"}
 Any other return (a string, a number, `None`) is treated as `allow()`
 with a runtime warning.
 
+For the cross-scope chaining contract and examples, see
+[Control-Flow Hooks](./control-flow-hooks.md).
+
 ### Composition rules
 
 - Hooks for an event run in **priority order** (low to high).
 - The **first `block` wins** — the chain short-circuits and subsequent
   hooks are skipped.
+- `delegate(request)` also short-circuits the chain and hands execution to the
+  runtime's control-flow handler.
 - `modify` rewrites the payload *in place* for downstream hooks and the
   underlying operation.
 - `allow` is a no-op pass.

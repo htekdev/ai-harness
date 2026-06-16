@@ -39,6 +39,7 @@ type Agent struct {
 	logger            *slog.Logger
 	maxToolIterations int
 	composer          *artifact.Composer
+	stopDelegate      StopDelegateHandler
 	turnNumber        int
 }
 
@@ -49,6 +50,9 @@ type Options struct {
 	Hooks   *hooks.System
 	Context *agentctx.Manager
 	Logger  *slog.Logger
+	// StopDelegate executes a hook-requested delegation from the agent.stop
+	// lifecycle event, allowing declarative control-flow handoffs.
+	StopDelegate StopDelegateHandler
 	// MaxToolIterations overrides the default cap on tool-call loops per turn.
 	// 0 means use DefaultMaxToolIterations.
 	MaxToolIterations int
@@ -80,6 +84,7 @@ func New(opts Options) *Agent {
 		logger:            opts.Logger,
 		maxToolIterations: maxIter,
 		composer:          opts.Composer,
+		stopDelegate:      opts.StopDelegate,
 	}
 }
 
@@ -339,8 +344,14 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 		// Final response: emitted by the model with finish_reason=stop and
 		// zero tool_calls. Anything else has been handled (or errored) above.
 		if len(choice.Message.ToolCalls) == 0 {
-			a.context.AddMessage(choice.Message)
 			result.Response = choice.Message.Content
+			if err := a.handleAgentStop(turnCtx, newStopPayload(turnCtx, choice.FinishReason, iteration+1, result), result); err != nil {
+				return nil, err
+			}
+			a.context.AddMessage(completion.Message{
+				Role:    completion.RoleAssistant,
+				Content: result.Response,
+			})
 			completed = true
 			break
 		}
