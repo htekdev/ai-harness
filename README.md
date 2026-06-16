@@ -10,6 +10,40 @@
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Release](https://img.shields.io/github/v/release/htekdev/ai-harness?include_prereleases)](https://github.com/htekdev/ai-harness/releases)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Discussions](https://img.shields.io/github/discussions/htekdev/ai-harness?logo=github&label=Discussions)](https://github.com/htekdev/ai-harness/discussions)
+[![Issues](https://img.shields.io/github/issues/htekdev/ai-harness?logo=github)](https://github.com/htekdev/ai-harness/issues)
+
+---
+
+## 🚀 What's New in v0.6.0 (2026-06-15)
+
+> **Theme:** *Production hardening, declarative event sources, and the public docs site.*
+
+- **Phase 4 — Event Sources:** Telegram + MeshWire `Source` primitives, bidirectional with durable offsets; declarative `serve:` config block.
+- **Phase 5 — Production Hardening:** structured `log/slog`, OpenTelemetry tracing (`agent.Run`, `delegation.Execute`, `tools.Call`, `source.pump`), typed `errs.Kind*` taxonomy, streaming CLI, network sandbox for Starlark `http.*`, per-model rate limiting.
+- **Phase 6.1 — Public docs site:** [htekdev.github.io/ai-harness](https://htekdev.github.io/ai-harness/) goes live with seven hands-on guides (see [Guides](#-guides) below).
+- **Production deploy recipes** — hardened systemd unit, distroless Docker image, `harness deploy` one-shot — under [`deploy/`](deploy/).
+
+Full changelog: **[CHANGELOG.md](CHANGELOG.md)** • Release notes: **[v0.6.0 release](https://github.com/htekdev/ai-harness/releases/tag/v0.6.0)**
+
+---
+
+## ⚡ 60-Second Quickstart
+
+```bash
+# 1. Install
+go install github.com/htekdev/ai-harness/cmd/harness@latest
+
+# 2. Scaffold a governed agent
+harness init my-agent && cd my-agent
+
+# 3. Validate, inspect, run
+harness validate              # ✅ harness.md — valid (6 tools, 2 hooks, 0 agents)
+harness context -v            # See exactly what the model will see
+harness run                   # Interactive
+```
+
+New to AI Harness? Start with **[Your First Governed Agent (end-to-end)](https://htekdev.github.io/ai-harness/guides/your-first-governed-agent.html)** — a 20-minute build of a real `reporter` agent with tools, hooks, policies, and a sub-agent.
 
 ---
 
@@ -1430,6 +1464,49 @@ Each event carries:
 | Per-turn evaluation engine | ✅ Stable |
 | Composition options pattern | ✅ Stable |
 | Event-driven persistence log | ✅ Stable |
+
+## 📚 Guides
+
+Hands-on, copy-paste-ready tutorials at [htekdev.github.io/ai-harness](https://htekdev.github.io/ai-harness/):
+
+| Guide | What you'll build |
+|---|---|
+| **[Your First Governed Agent](https://htekdev.github.io/ai-harness/guides/your-first-governed-agent.html)** | End-to-end 20-min walkthrough — sequences tool + hook + policy + sub-agent into one `reporter` agent. **Start here.** |
+| [Getting Started](https://htekdev.github.io/ai-harness/guides/getting-started.html) | Install, scaffold, run your first harness |
+| [Writing a Tool](https://htekdev.github.io/ai-harness/guides/writing-a-tool.html) | Starlark `.md` tool with sandboxed `http.*` |
+| [Writing a Hook](https://htekdev.github.io/ai-harness/guides/writing-a-hook.html) | `tool.pre` / `tool.post` / `completion.pre` lifecycle hooks |
+| [Writing a Sub-Agent](https://htekdev.github.io/ai-harness/guides/writing-a-sub-agent.html) | Bounded delegation via the `delegate` meta-tool |
+| [Writing a Policy](https://htekdev.github.io/ai-harness/guides/writing-a-policy.html) | Layer 2/3 governance: allowlists, arg-jails, audit pairs |
+| [Writing a Context](https://htekdev.github.io/ai-harness/guides/writing-a-context.html) | Declarative conditional context loading |
+| [Testing with Evals](https://htekdev.github.io/ai-harness/guides/testing.html) | YAML eval cases, 10 grade assertions, CI integration |
+| [Production Deployment](https://htekdev.github.io/ai-harness/guides/deployment.html) | systemd, Docker, sizing, restart policies |
+| [Observability with OpenTelemetry](https://htekdev.github.io/ai-harness/guides/observability.html) | Spans, slog↔trace bridge, Jaeger compose |
+| [Network Sandboxing](https://htekdev.github.io/ai-harness/guides/network-sandbox.html) | Per-artifact `http.*` allowlists |
+
+Concept docs (per-turn evaluation, typed artifacts, governance, delegation, hooks) live under **[/concepts](https://htekdev.github.io/ai-harness/concepts/index.html)**.
+
+---
+
+## 🗺️ Roadmap
+
+The roadmap is tracked publicly:
+
+- **Active milestones:** [github.com/htekdev/ai-harness/milestones](https://github.com/htekdev/ai-harness/milestones)
+- **Phase backlog:** [open issues by phase label](https://github.com/htekdev/ai-harness/labels?q=phase)
+- **Discussions & RFCs:** [github.com/htekdev/ai-harness/discussions](https://github.com/htekdev/ai-harness/discussions)
+
+Current focus (post-v0.6.0): community launch (Phase 6.2/6.3) and Phase 7 — sub-agent lifecycle hooks ([#149](https://github.com/htekdev/ai-harness/pull/149)) and unified loop-exit primitive ([#137](https://github.com/htekdev/ai-harness/pull/137)).
+
+---
+
+## 💬 Community
+
+- 🐛 **Found a bug or have a feature idea?** Open an [Issue](https://github.com/htekdev/ai-harness/issues/new/choose).
+- 💡 **Want to compare notes, propose a primitive, or RFC something?** Start a [Discussion](https://github.com/htekdev/ai-harness/discussions). Honest comparison beats marketing.
+- 🛠️ **Want to contribute code or docs?** See [Contributing](#contributing) below.
+- 📣 **Building on top of AI Harness?** Open a Discussion in the *Show and tell* category — we'd love to feature you.
+
+---
 
 ## Contributing
 
