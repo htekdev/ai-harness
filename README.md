@@ -1433,14 +1433,48 @@ Each event carries:
 
 ## Contributing
 
-Contributions are welcome. Keep changes small, add tests with code changes, and run:
+Contributions are welcome. The full contributor manual lives in the docs site:
+**[docs/src/project/contributing.md](docs/src/project/contributing.md)** ([rendered](https://htekdev.github.io/ai-harness/project/contributing.html))
+
+Quick reference for code changes:
 
 ```bash
 go build ./...
-go test ./... -cover
+go test ./... -cover -race -timeout 120s
 go vet ./...
+gofmt -l .
+go run ./cmd/harness validate -v
 ```
+
+Guidelines:
+
+- **Keep changes small.** Target ~500 lines per PR; split larger work.
+- **Tests with code.** New tools, hooks, and built-ins land with tests.
+- **Conventional Commits.** `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`.
+- **Squash merge.** History on `main` stays linear.
+- **No skip path on CI.** All 7 checks (Lint, Build, Test ubuntu/macos/windows on Go 1.25, Build mdBook) must be green.
+- **Docs are first-class.** New primitives ship with a reference page under `docs/src/reference/` and an entry in `SUMMARY.md`.
+- **Pre-1.0 schema-evolution clause.** Artifact frontmatter and CLI flags may change between minor releases — see [CHANGELOG.md](CHANGELOG.md).
+
+Open issues, feature ideas, and ADR proposals are tracked in [GitHub Issues](https://github.com/htekdev/ai-harness/issues) and [Discussions](https://github.com/htekdev/ai-harness/discussions).
+
+## Community & Ecosystem
+
+AI Harness is part of a growing ecosystem of minimal-core agent harnesses. We learn from prior art and try to be explicit about where we agree, where we differ, and why.
+
+- **[Pi](https://github.com/earendil-works/pi)** (earendil-works) — the strongest public benchmark for a minimal terminal agent harness. Pi validates the small-core philosophy. AI Harness extends that thesis into production governance: typed artifact composition, per-turn evaluation, claims verification, and context observability as first-class. See the [Pi benchmark table](#pi-benchmark-shared-philosophy-different-depth) above.
+- **[OpenHarness](https://github.com/openharness/openharness)** — the broader category reference. AI Harness is intentionally narrower: governance-forward, Markdown-first, single Go binary. We do not position ourselves as a clone or a drop-in replacement. See [Differentiation from OpenHarness](#differentiation-from-openharness-category-level).
+- **[GitHub Copilot](https://github.com/features/copilot)** and **[OpenAI](https://openai.com)** — first-class providers. AI Harness speaks the OpenAI-compatible chat completions protocol; both work out of the box.
+
+If you're building a harness or a harness extension and want to compare notes, open a [Discussion](https://github.com/htekdev/ai-harness/discussions). Honest comparison beats marketing.
+
+## Acknowledgments
+
+- The **Pi** team at earendil-works for shipping a minimal harness with a clear philosophy and well-documented customization surface — it raised the bar on what "small core" means in this category.
+- The **Go** community for a standard library and tooling that make it possible to ship a single static binary with ~5 dependencies.
+- The **Keep a Changelog** and **Semantic Versioning** projects for the release discipline this repo follows.
+- Everyone who has filed issues, opened PRs, or pushed back on naming and positioning. Harness engineering is a new discipline, and it gets better in public.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
