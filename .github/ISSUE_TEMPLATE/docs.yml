@@ -1,0 +1,36 @@
+name: 📚 Documentation Issue
+description: Report missing, unclear, or incorrect documentation.
+title: "docs: <short description>"
+labels: ["documentation", "triage"]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Affected page or file
+      description: URL on https://htekdev.github.io/ai-harness/ or path under `docs/src/`.
+      placeholder: "docs/src/guides/writing-a-tool.md"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong or missing?
+      description: Be specific — quote the confusing sentence, or describe what you tried to do and where the docs left you stuck.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Optional. If you have a fix in mind, sketch it here. PRs welcome.
+    validations:
+      required: false
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched [existing issues](https://github.com/htekdev/ai-harness/issues?q=is%3Aissue+label%3Adocumentation) and didn't find a duplicate.
+          required: true
+        - label: I agree to follow this project's [Code of Conduct](../../CODE_OF_CONDUCT.md).
+          required: true
