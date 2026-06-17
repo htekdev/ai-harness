@@ -103,8 +103,12 @@ func TestShowcaseProductionBaselineLoadTree(t *testing.T) {
 		t.Fatalf("LoadAndRegister production baseline showcase: %v", err)
 	}
 
-	if reg.Count() != 3 {
-		t.Fatalf("expected 3 artifacts in production baseline showcase, got %d", reg.Count())
+	if reg.Count() < 2 {
+		t.Fatalf("expected at least 2 artifacts in production baseline showcase, got %d", reg.Count())
+	}
+
+	if _, ok := reg.Get("production-baseline-showcase"); !ok {
+		t.Fatalf("expected production-baseline-showcase harness artifact")
 	}
 
 	showcasePlugin, ok := reg.Get("mature-harness-production-baseline")

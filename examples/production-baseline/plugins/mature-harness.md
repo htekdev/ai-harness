@@ -30,7 +30,7 @@ tools:
 
           if not path:
               return {"error": "path is required"}
-          if path.startswith("/tmp") or "/tmp/" in path:
+          if path == "/tmp" or path.startswith("/tmp/") or path == "tmp" or path.startswith("tmp/"):
               return {"error": "refusing writes to /tmp in production baseline profile"}
           if len(content) > max_bytes:
               return {"error": "content exceeds max_bytes=" + str(max_bytes)}
@@ -131,14 +131,14 @@ hooks:
           if name == "safe_content_write":
               path = args.get("path", "")
               content = args.get("content", "")
-              if path.startswith("/tmp") or "/tmp/" in path:
+              if path == "/tmp" or path.startswith("/tmp/") or path == "tmp" or path.startswith("tmp/"):
                   return block("refusing writes to /tmp in production baseline profile")
               if len(content) > 16384:
                   return block("content write exceeds production baseline max_bytes=16384")
 
           if name in ["exec", "bash", "shell"]:
               command = args.get("command", args.get("cmd", ""))
-              if "/tmp/" in command:
+              if "> /tmp" in command or ">/tmp" in command or "tee /tmp" in command:
                   return block("refusing command-based write to /tmp in production baseline profile")
               if "cat <<" in command and ">" in command and len(command) > 4096:
                   return block("large heredoc-to-file command blocked; prefer safe_content_write or edit-style operations")
@@ -240,4 +240,3 @@ This showcase plugin is a production-grade baseline that demonstrates:
 
 - Builtins: `fs.*`, `cache.*`, `ctx.*`, `json.*`, `time.now()`, `emit()`, `log()`
 - Hook events: `tool.pre`, `delegation.pre`, `completion.pre`, `turn.start`, `turn.end`
-
