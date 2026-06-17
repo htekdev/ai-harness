@@ -92,3 +92,29 @@ func TestReferenceCopilotCLILoadTree(t *testing.T) {
 		t.Fatalf("expected reference plugin to define hooks")
 	}
 }
+
+func TestShowcaseProductionBaselineLoadTree(t *testing.T) {
+	_, thisFile, _, _ := runtime.Caller(0)
+	repoRoot := filepath.Dir(filepath.Dir(thisFile))
+	showcaseDir := filepath.Join(repoRoot, "examples", "production-baseline")
+
+	reg, err := artifact.LoadAndRegister(showcaseDir)
+	if err != nil {
+		t.Fatalf("LoadAndRegister production baseline showcase: %v", err)
+	}
+
+	if reg.Count() != 3 {
+		t.Fatalf("expected 3 artifacts in production baseline showcase, got %d", reg.Count())
+	}
+
+	showcasePlugin, ok := reg.Get("mature-harness-production-baseline")
+	if !ok {
+		t.Fatalf("expected mature-harness-production-baseline artifact")
+	}
+	if len(showcasePlugin.Tools) < 3 {
+		t.Fatalf("expected production baseline showcase plugin to define >=3 tools")
+	}
+	if len(showcasePlugin.Hooks) < 6 {
+		t.Fatalf("expected production baseline showcase plugin to define >=6 hooks")
+	}
+}

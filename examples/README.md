@@ -72,6 +72,11 @@ examples/
 ├── context/               ← Dynamic context examples
 │   ├── pr-mode.md         ← Conditional PR review context
 │   └── time-based.md      ← Business hours vs quiet mode
+├── production-baseline/   ← Mature harness showcase bundle
+│   ├── README.md          ← Explains tools/hooks and governance rationale
+│   ├── identity.md        ← Showcase harness identity
+│   └── plugins/
+│       └── mature-harness.md ← Production baseline plugin profile
 ├── reference/             ← Reference runtime mappings
 │   ├── copilot-cli.md     ← Copilot CLI concept → artifact mapping + gaps
 │   └── copilot-cli/       ← Replayable reference harness artifacts
