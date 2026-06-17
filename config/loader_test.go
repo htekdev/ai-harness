@@ -2,7 +2,9 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -300,5 +302,80 @@ You research things.
 	}
 	if _, ok := agents["researcher"]; !ok {
 		t.Error("expected 'researcher' agent")
+	}
+}
+
+func TestLoadFull_WithGitArtifactSource(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := filepath.Join(t.TempDir(), "plugin-repo")
+	if err := os.MkdirAll(filepath.Join(repoDir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plugin := `---
+name: production
+type: plugin
+tools:
+  - name: prod_guard
+    description: guard
+    parameters: {}
+    script: |
+      def run(args):
+          return "ok"
+---
+
+plugin body
+`
+	if err := os.WriteFile(filepath.Join(repoDir, "plugins", "production.md"), []byte(plugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+		{"add", "."},
+		{"commit", "-m", "init"},
+		{"tag", "v1.0.0"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v (%s)", args, err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	harness := `---
+model:
+  name: gpt-4o
+  max_tokens: 1024
+  temperature: 0.1
+trusted_sources:
+  - ` + repoDir + `
+artifact_sources:
+  - type: git
+    url: ` + repoDir + `
+    ref: v1.0.0
+    path: plugins
+---
+
+# Test
+`
+	configPath := filepath.Join(projectDir, "harness.md")
+	if err := os.WriteFile(configPath, []byte(harness), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := LoadFull(configPath)
+	if err != nil {
+		t.Fatalf("LoadFull error: %v", err)
+	}
+	found := false
+	for _, tool := range cfg.Tools {
+		if tool.Name == "prod_guard" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected tool from git artifact source; tools=%v", cfg.Tools)
 	}
 }

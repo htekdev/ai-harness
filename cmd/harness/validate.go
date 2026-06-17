@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -146,4 +147,12 @@ func resolveConfigFromDir(dir, explicit string) string {
 		}
 	}
 	return dir + "/harness.md"
+}
+
+func dirOfConfig(path string) string {
+	dir := filepath.Dir(path)
+	if dir == "" {
+		return "."
+	}
+	return dir
 }

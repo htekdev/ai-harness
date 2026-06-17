@@ -29,6 +29,7 @@ These are the commands you will use in roughly the order you reach for them:
 | `serve`     | Multi-source session: stdin + telegram + meshwire (long-lived)  |
 | `deploy`    | Run the harness non-interactively (CI/CD, single prompt in/out) |
 | `inspect`   | Snapshot of runtime state: tools, hooks, agents, artifacts      |
+| `pull`      | Fetch and refresh external `artifact_sources` into local cache   |
 
 ## Develop commands
 
@@ -289,6 +290,27 @@ loaded configuration before you commit a change.
 - `-v, --verbose` — include parameters, hook scopes, agent details.
 - `--events` — show recent events _(placeholder — requires runtime)_.
 - `--failures` — show recent failures _(placeholder — requires runtime)_.
+
+---
+
+## `pull`
+
+```text
+harness pull [-c <path>]
+```
+
+Fetches every source listed in `artifact_sources` and refreshes the local
+cache (`~/.cache/ai-harness/sources` by default, or `$XDG_CACHE_HOME` when
+set). Use this in CI or before going offline.
+
+**Flags**
+
+- `-c, --config <path>` — config path override.
+
+**Exit codes**
+
+- `0` on success
+- `1` on validation/fetch failure
 
 ---
 

@@ -187,6 +187,72 @@ func TestCLIUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestCLIPull(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := filepath.Join(t.TempDir(), "plugin-repo")
+	if err := os.MkdirAll(filepath.Join(repoDir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "plugins", "plugin.md"), []byte(`---
+name: prod
+type: plugin
+tools:
+  - name: from_pull
+    description: from pull
+    parameters: {}
+    script: |
+      def run(args):
+          return "ok"
+---
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+		{"add", "."},
+		{"commit", "-m", "init"},
+		{"tag", "v1.0.0"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	harnessPath := filepath.Join(projectDir, "harness.md")
+	if err := os.WriteFile(harnessPath, []byte(`---
+model:
+  name: gpt-4o
+  max_tokens: 512
+  temperature: 0.1
+trusted_sources:
+  - `+repoDir+`
+artifact_sources:
+  - type: git
+    url: `+repoDir+`
+    ref: v1.0.0
+    path: plugins
+---
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheDir := t.TempDir()
+	cmd := exec.Command("go", "run", ".", "pull", "-c", harnessPath)
+	cmd.Dir = "."
+	cmd.Env = append(os.Environ(), "XDG_CACHE_HOME="+cacheDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("pull command failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "Fetched 1 artifact source") {
+		t.Fatalf("unexpected output: %s", out)
+	}
+}
+
 func TestCLINoArgs(t *testing.T) {
 	cmd := exec.Command("go", "run", ".")
 	cmd.Dir = "."

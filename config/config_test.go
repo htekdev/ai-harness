@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/htekdev/ai-harness/artifactsource"
 )
 
 func TestParseYAML(t *testing.T) {
@@ -202,5 +204,26 @@ func TestParseRejectsInvalidConfig(t *testing.T) {
 	_, err := Parse([]byte("model:\n  temperature: 9\n"))
 	if err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestValidateArtifactSources(t *testing.T) {
+	cfg := &Config{
+		Model: ModelConfig{Name: "gpt-4o", MaxTokens: 512, Temperature: 1},
+		ArtifactSources: []artifactsource.SourceSpec{
+			{Type: "git", URL: "https://example.com/repo.git", Ref: "main"},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	for _, want := range []string{
+		"appears mutable",
+		"must be allowlisted in trusted_sources",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expected %q in error, got %v", want, err)
+		}
 	}
 }

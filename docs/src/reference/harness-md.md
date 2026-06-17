@@ -60,6 +60,8 @@ no system prompt is read from the file.
 | `meta`         | [Meta](#meta)                     | _disabled_     | no       |
 | `serve`        | [Serve](#serve)                   | _none_         | no       |
 | `network`      | [Network](#network)               | _unrestricted_ | no       |
+| `trusted_sources` | `[string]`                      | _empty_        | no       |
+| `artifact_sources` | [\[ArtifactSource\]](#artifact_sources) | _empty_ | no |
 
 The minimal valid frontmatter is an empty block — defaults will fill in a
 working `gpt-4o` profile against the GitHub Copilot endpoint, provided
@@ -398,6 +400,44 @@ matching rules.
 
 ---
 
+## `trusted_sources`
+
+Allowlist of external source URLs/paths trusted to provide executable
+artifacts (tools/hooks Starlark code). Any non-local `artifact_sources` entry
+must appear in this list.
+
+```yaml
+trusted_sources:
+  - https://github.com/htekdev/harness-plugin-production
+```
+
+## `artifact_sources`
+
+Optional external artifact roots to load in addition to local files.
+
+```yaml
+artifact_sources:
+  - type: git
+    url: https://github.com/htekdev/harness-plugin-production
+    ref: v1.0.0
+    path: plugins
+    checksum: sha256:...
+  - type: local
+    path: .harness
+```
+
+Supported fields:
+
+- `type`: `local` or `git`
+- `path`: local filesystem path (required for `local`; optional subdirectory for `git`)
+- `url`: git clone URL/path (required for `git`)
+- `ref`: pinned tag or commit SHA (required for `git`; branch refs rejected)
+- `checksum`: optional `sha256:<hex>` integrity pin over resolved files
+
+Set `HARNESS_OFFLINE=1` to force cache-only loading for git sources.
+
+---
+
 ## Defaults summary
 
 The loader applies these defaults before validation:
@@ -429,6 +469,10 @@ The loader applies these defaults before validation:
 - All `tools_policy.allow` / `deny` entries are non-empty strings
 - `serve.sources` non-empty when `serve` is present, with per-source
   required fields enforced
+- `artifact_sources[*]` type-specific required fields
+- `artifact_sources[*].ref` must be pinned (tag or commit SHA), not mutable branch names
+- git `artifact_sources[*].url` must be listed in `trusted_sources`
+- `artifact_sources[*].checksum` must use `sha256:<hex>` when present
 - `model.retry` and per-`models[i].retry` field bounds (`max_retries >= 0`,
   backoffs `>= 0`, `multiplier >= 0`)
 

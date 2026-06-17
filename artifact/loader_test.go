@@ -2,7 +2,9 @@ package artifact
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -336,6 +338,7 @@ Compaction rules for code review mode.
 	if err != nil {
 		t.Fatalf("Parse compaction failed: %v", err)
 	}
+
 	if a.Metadata.Type != TypeCompaction {
 		t.Fatalf("expected compaction type, got %s", a.Metadata.Type)
 	}
@@ -347,5 +350,54 @@ Compaction rules for code review mode.
 	}
 	if a.Compaction.Strategies["summarize"].Prompt == "" {
 		t.Fatal("expected summarize strategy prompt")
+	}
+}
+
+func TestLoadAndRegisterFromSources_Git(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(repoDir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plugin := []byte("---\n" +
+		"name: remote-plugin\n" +
+		"type: plugin\n" +
+		"description: remote plugin\n" +
+		"tools:\n" +
+		"  - name: remote_tool\n" +
+		"    description: Remote tool\n" +
+		"---\n")
+	if err := os.WriteFile(filepath.Join(repoDir, "plugins", "remote.md"), plugin, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+		{"add", "."},
+		{"commit", "-m", "init"},
+		{"tag", "v1.0.0"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v (%s)", args, err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	reg, err := LoadAndRegisterFromSources(projectDir, []SourceSpec{{
+		Type: "git",
+		URL:  repoDir,
+		Ref:  "v1.0.0",
+		Path: "plugins",
+	}}, ResolveOptions{TrustedSources: []string{repoDir}, CacheDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("LoadAndRegisterFromSources failed: %v", err)
+	}
+	if reg.Count() != 1 {
+		t.Fatalf("expected 1 artifact, got %d", reg.Count())
+	}
+	if got := reg.All()[0].Metadata.Name; got != "remote-plugin" {
+		t.Fatalf("artifact name=%q", got)
 	}
 }
