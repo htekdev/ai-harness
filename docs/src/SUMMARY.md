@@ -33,6 +33,7 @@
 - [`harness.md` Frontmatter](./reference/harness-md.md)
 - [Tool Artifact Schema](./reference/tool-artifact.md)
 - [Hook Artifact Schema](./reference/hook-artifact.md)
+- [Sub-Agent Artifact Schema](./reference/sub-agent-artifact.md)
 - [CLI](./reference/cli.md)
 - [Starlark Built-ins](./reference/starlark-builtins.md)
 
