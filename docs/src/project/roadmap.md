@@ -198,6 +198,9 @@ Open questions:
 - 🤔 **v0.6.0 vs v1.0.0-rc1.** All Phase 6.1/6.2 work is accumulated on `main`;
   the question is whether the next tag is a 0.x release or our first
   release-candidate for 1.0.
+- 🤔 **Naming/rebrand finalization** (issue [#102]). Current direction is to keep
+  "Harness as Code" as category language, complete namespace/trademark checks on
+  finalists, and perform any rename with the v1.0.0 cut (not before v0.6.0).
 
 ---
 
@@ -211,6 +214,7 @@ Open questions:
 | 4 | Hook packs — Go modules or MD bundles? | MD bundles. |
 | 5 | Event sources — config-only or runtime-registrable? | Both (config primary). |
 | 6 | v0.6.0 vs v1.0.0-rc1? | Open. Feedback welcome. |
+| 7 | Rebrand timing and finalist selection (issue [#102])? | Decide post-launch; pair with v1.0.0 cut. |
 
 ---
 
@@ -242,3 +246,4 @@ the closest existing primitive.
 
 [#69]: https://github.com/htekdev/ai-harness/issues/69
 [#104]: https://github.com/htekdev/ai-harness/issues/104
+[#102]: https://github.com/htekdev/ai-harness/issues/102

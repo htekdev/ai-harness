@@ -63,7 +63,9 @@ Most agent frameworks force a choice:
 
 To avoid blocking architecture work while product naming evolves:
 
-- Keep **AI Harness / Harness as Code** as the umbrella product surface.
+- Keep **Harness as Code** as the category language.
+- Keep shipping as **AI Harness** through Phase 6 / v0.6.0; do not block launch on rename.
+- Naming research issue ([#102](https://github.com/htekdev/ai-harness/issues/102)) currently ranks **Cinch** as the top candidate, with **Ward** as fallback pending namespace/trademark verification and final sign-off.
 - Keep internal schema language descriptive and artifact-first: **artifacts**, **definitions**, **events**, **triggers**, **watchers**, **schedules**, **runtimes**.
 - Do not position **extensions** as the primary abstraction in new copy.
 
@@ -76,7 +78,7 @@ To avoid blocking architecture work while product naming evolves:
 
 ### Current recommendation
 
-Use **artifacts/definitions** as the core noun set now, and treat any `extension` wording as compatibility terminology rather than the long-term conceptual center.
+Use **artifacts/definitions** as the core noun set now, treat any `extension` wording as compatibility terminology, and keep rename execution paired with the eventual v1.0.0 cut after the issue #102 decision gate clears.
 
 ## What Makes It Different
 
