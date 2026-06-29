@@ -261,10 +261,11 @@ hooks:
 
 Recognized event names (full list in [Hook Artifact Schema](./hook-artifact.md)):
 
+- `session.start`, `session.end`
+- `turn.start`, `turn.end`, `agent.stop`
 - `tool.pre`, `tool.post`
 - `completion.pre`, `completion.post`
-- `delegate.pre`, `delegate.post`
-- `agent.start`, `agent.turn`, `agent.stop`
+- `delegation.pre`, `delegation.post`, `delegation.post_verify`
 
 ---
 

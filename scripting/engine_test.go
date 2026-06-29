@@ -247,6 +247,34 @@ def handle(event, payload):
 	}
 }
 
+func TestEngine_CompileHookScript_Delegate(t *testing.T) {
+	engine := NewEngine()
+
+	script := `
+def handle(event, payload):
+    return delegate({
+        "task": "run review",
+        "agent": "reviewer",
+    })
+`
+	runner, err := engine.CompileHookScript("delegate_hook", script)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	result := runner.Run(context.Background(), hooks.EventAgentStop, map[string]any{"response": "done"})
+	if result.Action != hooks.ActionDelegate {
+		t.Fatalf("got action %d, want ActionDelegate", result.Action)
+	}
+	request, ok := result.Delegate.(map[string]any)
+	if !ok {
+		t.Fatalf("delegate payload type: %T", result.Delegate)
+	}
+	if request["task"] != "run review" || request["agent"] != "reviewer" {
+		t.Fatalf("unexpected delegate payload: %#v", request)
+	}
+}
+
 func TestEngine_CompileHookScript_MissingHandleFunction(t *testing.T) {
 	engine := NewEngine()
 

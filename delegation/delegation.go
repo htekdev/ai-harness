@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -28,6 +29,8 @@ import (
 
 // tracerName is the OTel instrumentation library name shared across packages.
 const tracerName = "github.com/htekdev/ai-harness"
+
+type delegationIDContextKey struct{}
 
 // MaxDelegationDepth is the default maximum recursion depth for delegation.
 // Can be overridden via DelegatorConfig.MaxDepth.
@@ -65,6 +68,8 @@ type HookSpec struct {
 
 // Request contains everything needed to spin up a delegate agent.
 type Request struct {
+	ID           string     `json:"id,omitempty"`
+	ParentID     string     `json:"parent_id,omitempty"`
 	Task         string     `json:"task"`
 	Agent        string     `json:"agent,omitempty"`
 	Model        string     `json:"model,omitempty"`
@@ -91,6 +96,8 @@ const DefaultMaxVerifyRetries = 2
 
 // Result is the output of a delegation.
 type Result struct {
+	ID          string         `json:"id,omitempty"`
+	ParentID    string         `json:"parent_id,omitempty"`
 	Response    string         `json:"response"`
 	ToolCalls   []tools.Call   `json:"tool_calls,omitempty"`
 	ToolResults []tools.Result `json:"tool_results,omitempty"`
@@ -186,16 +193,32 @@ func NewDelegator(cfg DelegatorConfig) *Delegator {
 // from the span context. Failures record the error and set codes.Error.
 func (d *Delegator) Execute(ctx context.Context, req Request) (result *Result, err error) {
 	currentDepth := GetDepth(ctx)
+	req = ensureCorrelation(ctx, req)
 
+	parentSpanCtx := trace.SpanContextFromContext(ctx)
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "delegation.execute",
 		trace.WithAttributes(
+			attribute.String("delegation.id", req.ID),
+			attribute.String("delegation.parent_id", req.ParentID),
 			attribute.String("delegation.agent", req.Agent),
 			attribute.Int("delegation.depth", currentDepth),
 			attribute.Int("delegation.task_len", len(req.Task)),
 		),
 	)
+	if req.ID == "" && span.SpanContext().HasSpanID() {
+		req.ID = span.SpanContext().SpanID().String()
+	}
+	if req.ID == "" {
+		req.ID = "delegation-" + uuid.NewString()
+	}
+	if req.ParentID == "" && parentSpanCtx.HasSpanID() {
+		req.ParentID = parentSpanCtx.SpanID().String()
+	}
+	ctx = context.WithValue(ctx, delegationIDContextKey{}, req.ID)
 	defer func() {
 		span.SetAttributes(
+			attribute.String("delegation.id", req.ID),
+			attribute.String("delegation.parent_id", req.ParentID),
 			attribute.String("delegation.model", req.Model),
 			attribute.Int("delegation.tools_count", len(req.Tools)),
 		)
@@ -422,6 +445,8 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (result *Result, e
 		}
 
 		result = &Result{
+			ID:          req.ID,
+			ParentID:    req.ParentID,
 			Response:    turnResult.Response,
 			ToolCalls:   turnResult.ToolCalls,
 			ToolResults: turnResult.ToolResults,
@@ -516,6 +541,9 @@ func (d *Delegator) Execute(ctx context.Context, req Request) (result *Result, e
 				return nil, fmt.Errorf("delegate.post modify payload: %w", err)
 			}
 		}
+		if postResult.Action == hooks.ActionDelegate {
+			return d.ExecuteControlFlow(ctx, postResult.Delegate)
+		}
 	}
 
 	return result, nil
@@ -565,6 +593,70 @@ func applyHookPayload(payload any, target any) error {
 	}
 	rv.Elem().Set(reflect.Zero(rv.Elem().Type()))
 	return json.Unmarshal(data, target)
+}
+
+// ExecuteControlFlow decodes a hook-provided delegation request, enforces
+// chaining safeguards, and executes the redirected delegation.
+func (d *Delegator) ExecuteControlFlow(ctx context.Context, payload any) (*Result, error) {
+	req, err := decodeControlFlowRequest(payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode delegate request: %w", err)
+	}
+	nextCtx, err := hooks.AdvanceControlFlow(ctx, controlFlowKey(req), hooks.DefaultControlFlowBudget)
+	if err != nil {
+		return nil, err
+	}
+	return d.Execute(nextCtx, req)
+}
+
+func ensureCorrelation(ctx context.Context, req Request) Request {
+	if req.ParentID == "" {
+		if delegationID, _ := ctx.Value(delegationIDContextKey{}).(string); delegationID != "" {
+			req.ParentID = delegationID
+		} else if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.HasSpanID() {
+			req.ParentID = spanCtx.SpanID().String()
+		}
+	}
+	return req
+}
+
+func decodeControlFlowRequest(payload any) (Request, error) {
+	switch v := payload.(type) {
+	case Request:
+		return v, nil
+	case *Request:
+		if v == nil {
+			return Request{}, fmt.Errorf("request is nil")
+		}
+		return *v, nil
+	}
+
+	if m, ok := payload.(map[string]any); ok {
+		if nested, exists := m["request"]; exists {
+			payload = nested
+		}
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return Request{}, err
+	}
+	var req Request
+	if err := json.Unmarshal(data, &req); err != nil {
+		return Request{}, err
+	}
+	return req, nil
+}
+
+func controlFlowKey(req Request) string {
+	key := req
+	key.ID = ""
+	key.ParentID = ""
+	data, err := json.Marshal(key)
+	if err != nil {
+		return fmt.Sprintf("%s|%s", key.Agent, key.Task)
+	}
+	return string(data)
 }
 
 // retryGuardHook tracks tool errors and blocks repeated failures.

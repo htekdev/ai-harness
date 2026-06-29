@@ -265,12 +265,13 @@ def handle(event, payload):
 |-------|------------|-----------|--------------|
 | `session.start` | Agent session begins | No | - |
 | `session.end` | Agent session ends | No | - |
+| `agent.stop` | Before the agent accepts a final no-tool-call reply | **Yes** | `id`, `response`, `finish_reason`, `tool_calls`, `tool_results` |
 | `tool.pre` | Before any tool executes | **Yes** | `tool_name`, `arguments` |
 | `tool.post` | After tool returns | Modify | `tool_name`, `arguments`, `result` |
 | `completion.pre` | Before LLM call | **Yes** | `messages`, `model` |
 | `completion.post` | After LLM returns | Modify | `messages`, `response` |
-| `delegation.pre` | Before spawning sub-agent | **Yes** | `agent_name`, `prompt` |
-| `delegation.post` | After sub-agent returns | Modify | `agent_name`, `result` |
+| `delegation.pre` | Before spawning sub-agent | **Yes** | `id`, `parent_id`, `task`, `agent` |
+| `delegation.post` | After sub-agent returns | Modify / Delegate | `id`, `parent_id`, `response`, `tool_calls`, `tool_results` |
 | `meta.register_tool` | Runtime tool registration | **Yes** | `name`, `description` |
 | `meta.register_hook` | Runtime hook registration | **Yes** | `event`, `handler` |
 | `meta.register_agent` | Runtime agent registration | **Yes** | `name` |

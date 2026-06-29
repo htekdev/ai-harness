@@ -375,6 +375,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 	})
 
 	// Set up delegation if configured
+	var delegator *delegation.Delegator
 	if c.Setup.Delegation != nil {
 		maxDepth := c.Setup.Delegation.MaxDepth
 		if maxDepth == 0 {
@@ -385,7 +386,7 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 			itersPerDepth = []int{10, 5, 3}
 		}
 
-		delegator := delegation.NewDelegator(delegation.DelegatorConfig{
+		delegator = delegation.NewDelegator(delegation.DelegatorConfig{
 			Client:             client,
 			Engine:             engine,
 			HookSystem:         hookSystem,
@@ -430,6 +431,20 @@ func (r *Runner) execute(ctx context.Context, c *EvalCase, apiKey string) (*Tran
 		Context:           ctxMgr,
 		Logger:            slog.Default().With("component", "eval", "case", c.Name),
 		MaxToolIterations: 10,
+		StopDelegate: func(ctx context.Context, request any) (*agent.TurnResult, error) {
+			if delegator == nil {
+				return nil, fmt.Errorf("agent.stop requested delegation but no delegator is configured")
+			}
+			result, err := delegator.ExecuteControlFlow(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			return &agent.TurnResult{
+				Response:    result.Response,
+				ToolCalls:   result.ToolCalls,
+				ToolResults: result.ToolResults,
+			}, nil
+		},
 	})
 
 	// Start session

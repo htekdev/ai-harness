@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Pending items tracked in [#98 — Phase 6.2 Launch Sequence](https://github.com/htekdev/ai-harness/issues/98).
 
+### Added
+
+- **Declarative agent chains (v0.7.0 beat)** — unified control-flow hooks via
+  `agent.stop` + `delegation.post`, `delegate(request)` hook action support,
+  and stable delegation correlation IDs / parent linkage for chained sub-agent
+  workflows.
+
 ---
 
 ## [0.6.0] — 2026-06-15

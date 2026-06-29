@@ -18,23 +18,25 @@ them too.
 ## What a hook actually is
 
 A hook is a typed artifact that subscribes to a **lifecycle event** and
-returns one of three verdicts:
+returns one of four verdicts:
 
 | Verdict   | Effect                                                         |
 |-----------|----------------------------------------------------------------|
 | `allow`   | Continue. Other hooks on this event still run.                 |
 | `block`   | Stop the operation. Subsequent hooks do **not** run.           |
+| `delegate` | Redirect control flow into a new delegation request. Supported on `agent.stop` and `delegation.post`. |
 | `modify`  | Replace the payload. Following hooks see the new payload.      |
 
-That ternary is the whole control plane. Everything from
+That control surface is the whole control plane. Everything from
 secret-scanning to per-tool retries to claims verification is built
-from `allow / block / modify`.
+from `allow / block / delegate / modify`.
 
 The events you can subscribe to are fixed:
 
 ```
 session.start    session.end
 turn.start       turn.end
+agent.stop
 tool.pre         tool.post
 completion.pre   completion.post
 delegation.pre   delegation.post   delegation.post_verify

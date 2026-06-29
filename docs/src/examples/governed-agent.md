@@ -169,6 +169,43 @@ See the full [Starlark Built-ins reference](../reference/starlark-builtins.md)
 for the complete API surface (`block`, `allow`, `modify`, `metrics`, `fs`,
 `http`, `json`, `re`, `cache`, `delegate`, `meta`).
 
+## Declarative agent chain
+
+This profile can also express a chained sub-agent flow entirely in artifacts:
+
+```yaml
+# .harness/hooks/chain_review.md
+---
+event: delegation.post
+priority: 50
+script: |
+  def handle(event, payload):
+      return delegate({
+          "task": "Review the completed implementation and list any gaps.",
+          "agent": "reviewer",
+      })
+---
+```
+
+That hook pairs with a normal parent delegation:
+
+```yaml
+# parent tool / prompt intent
+delegate({
+  "task": "Implement the requested change.",
+  "agent": "implementer",
+})
+```
+
+The runtime then performs:
+
+```text
+Parent agent -> implementer -> delegation.post hook -> reviewer
+```
+
+No imperative orchestration needs to live in the parent tool body. See
+[Control-Flow Hooks](../reference/control-flow-hooks.md) for the full contract.
+
 ## Run it locally
 
 ```bash

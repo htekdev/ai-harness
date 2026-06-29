@@ -297,6 +297,17 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 		Hooks:   hookSystem,
 		Context: ctxMgr,
 		Logger:  Logger().With("component", "harness"),
+		StopDelegate: func(ctx context.Context, request any) (*agent.TurnResult, error) {
+			result, err := delegator.ExecuteControlFlow(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			return &agent.TurnResult{
+				Response:    result.Response,
+				ToolCalls:   result.ToolCalls,
+				ToolResults: result.ToolResults,
+			}, nil
+		},
 	})
 
 	// Register self-augmenting meta-tools (Phase 5.8). These let the

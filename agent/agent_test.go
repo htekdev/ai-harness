@@ -198,6 +198,64 @@ func TestRunWithToolPreHookBlock(t *testing.T) {
 	}
 }
 
+func TestRunAgentStopHookCanDelegate(t *testing.T) {
+	agent := setupTestAgent(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(completion.Response{
+			Choices: []completion.Choice{{
+				Message:      completion.Message{Role: completion.RoleAssistant, Content: "initial completion"},
+				FinishReason: "stop",
+			}},
+		})
+	})
+
+	var stopID string
+	agent.Hooks().Register(hooks.Registration{
+		Name:  "chain-on-stop",
+		Event: hooks.EventAgentStop,
+		Handler: func(ctx context.Context, event hooks.Event, payload any) hooks.Result {
+			stop := payload.(*StopPayload)
+			stopID = stop.ID
+			return hooks.Result{
+				Action: hooks.ActionDelegate,
+				Delegate: map[string]any{
+					"task": "follow-up delegation",
+				},
+			}
+		},
+	})
+	agent.stopDelegate = func(ctx context.Context, request any) (*TurnResult, error) {
+		req := request.(map[string]any)
+		if req["task"] != "follow-up delegation" {
+			t.Fatalf("unexpected delegation request: %#v", req)
+		}
+		return &TurnResult{
+			Response: "delegated completion",
+			ToolCalls: []tools.Call{{
+				ID:   "delegate_1",
+				Name: "delegate",
+			}},
+			ToolResults: []tools.Result{{
+				CallID:  "delegate_1",
+				Content: "delegate complete",
+			}},
+		}, nil
+	}
+
+	result, err := agent.Run(context.Background(), "chain please")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if stopID == "" {
+		t.Fatal("expected agent.stop payload to include an id")
+	}
+	if result.Response != "delegated completion" {
+		t.Fatalf("unexpected response: %q", result.Response)
+	}
+	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "delegate" {
+		t.Fatalf("unexpected tool calls: %+v", result.ToolCalls)
+	}
+}
+
 func TestRunSession(t *testing.T) {
 	agent := setupTestAgent(func(w http.ResponseWriter, r *http.Request) {})
 

@@ -198,6 +198,7 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"assert":   starlark.NewBuiltin("assert", builtinAssert),
 		"allow":    starlark.NewBuiltin("allow", builtinContinue),
 		"block":    starlark.NewBuiltin("block", builtinBlock),
+		"delegate": starlark.NewBuiltin("delegate", builtinDelegate),
 		"modify":   starlark.NewBuiltin("modify", builtinModify),
 		"emit":     starlark.NewBuiltin("emit", builtinEmit),
 		"random":   starlark.NewBuiltin("random", builtinRandom),
@@ -341,6 +342,16 @@ func interpretHookResult(val starlark.Value) hooks.Result {
 			switch action {
 			case "block":
 				return hooks.Result{Action: hooks.ActionBlock, Reason: reason}
+			case "delegate":
+				requestVal, found, _ := dict.Get(starlark.String("request"))
+				if found {
+					return hooks.Result{Action: hooks.ActionDelegate, Delegate: starlarkToGo(requestVal)}
+				}
+				payloadVal, found, _ := dict.Get(starlark.String("payload"))
+				if found {
+					return hooks.Result{Action: hooks.ActionDelegate, Delegate: starlarkToGo(payloadVal)}
+				}
+				return hooks.Result{Action: hooks.ActionDelegate, Delegate: starlarkToGo(dict)}
 			case "modify":
 				payloadVal, found, _ := dict.Get(starlark.String("payload"))
 				if found {
@@ -440,6 +451,14 @@ func builtinModify(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple,
 	}
 	goPayload := starlarkToGo(payload)
 	return &hookResultValue{result: hooks.Result{Action: hooks.ActionModify, Payload: goPayload}}, nil
+}
+
+func builtinDelegate(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var request starlark.Value
+	if err := starlark.UnpackArgs("delegate", args, kwargs, "request", &request); err != nil {
+		return nil, err
+	}
+	return &hookResultValue{result: hooks.Result{Action: hooks.ActionDelegate, Delegate: starlarkToGo(request)}}, nil
 }
 
 func builtinRandom(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

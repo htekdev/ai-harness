@@ -18,6 +18,7 @@ const (
 	EventSessionEnd     Event = "session.end"
 	EventTurnStart      Event = "turn.start"
 	EventTurnEnd        Event = "turn.end"
+	EventAgentStop      Event = "agent.stop"
 	EventToolPre        Event = "tool.pre"
 	EventToolPost       Event = "tool.post"
 	EventCompletionPre  Event = "completion.pre"
@@ -50,13 +51,16 @@ const (
 	ActionBlock
 	// ActionModify allows the hook to modify the payload before continuing.
 	ActionModify
+	// ActionDelegate redirects control flow into a new delegation request.
+	ActionDelegate
 )
 
 // Result is returned by a hook handler after execution.
 type Result struct {
-	Action  Action
-	Payload any
-	Reason  string
+	Action   Action
+	Payload  any
+	Reason   string
+	Delegate any
 }
 
 // Handler is a function that processes a hook event.
@@ -91,6 +95,7 @@ func ValidEvents() []Event {
 		EventSessionEnd,
 		EventTurnStart,
 		EventTurnEnd,
+		EventAgentStop,
 		EventToolPre,
 		EventToolPost,
 		EventCompletionPre,
@@ -207,6 +212,17 @@ func (s *System) Dispatch(ctx context.Context, event Event, payload any) Result 
 		case ActionModify:
 			result.Payload = r.Payload
 			result.Action = ActionModify
+		case ActionDelegate:
+			delegate := r.Delegate
+			if delegate == nil {
+				delegate = r.Payload
+			}
+			return Result{
+				Action:   ActionDelegate,
+				Payload:  result.Payload,
+				Reason:   r.Reason,
+				Delegate: delegate,
+			}
 		case ActionContinue:
 			// nothing to do
 		}
