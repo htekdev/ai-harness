@@ -84,7 +84,7 @@ func NewRunner(cfg RunnerConfig) *Runner {
 
 	return &Runner{
 		Config: cfg,
-		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)).With("component", "evals"),
+		logger: slog.Default().With("component", "evals"),
 	}
 }
 

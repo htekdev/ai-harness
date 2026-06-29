@@ -3,6 +3,7 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
 )
@@ -136,5 +137,57 @@ func TestConfigureLoggerFromFlags(t *testing.T) {
 
 	if err := ConfigureLoggerFromFlags("bogus", "info"); err == nil {
 		t.Fatal("expected error for invalid format flag")
+	}
+}
+
+// TestSetLogger_SyncsSlogDefault verifies that SetLogger also installs the
+// logger as the stdlib slog default so packages that can't import harness
+// (agent, delegation, scripting, evals) still pick up the configured handler
+// via slog.Default().
+func TestSetLogger_SyncsSlogDefault(t *testing.T) {
+	orig := Logger()
+	origDefault := slog.Default()
+	t.Cleanup(func() {
+		SetLogger(orig)
+		slog.SetDefault(origDefault)
+	})
+
+	var buf bytes.Buffer
+	custom, err := NewLogger("json", "debug", &buf)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	SetLogger(custom)
+
+	// slog.Default() should now route through our buffer.
+	slog.Default().Info("via-default", "k", "v")
+
+	out := buf.String()
+	if !strings.Contains(out, `"msg":"via-default"`) {
+		t.Errorf("slog.Default() did not route to installed logger; got %q", out)
+	}
+}
+
+// TestLogger_LazySyncsSlogDefault verifies that the lazy-init path inside
+// Logger() also calls slog.SetDefault so the very first Logger() call (before
+// any SetLogger) wires up the stdlib default.
+func TestLogger_LazySyncsSlogDefault(t *testing.T) {
+	orig := Logger()
+	origDefault := slog.Default()
+	t.Cleanup(func() {
+		SetLogger(orig)
+		slog.SetDefault(origDefault)
+	})
+
+	// Reset the global so the next Logger() call triggers a lazy rebuild.
+	SetLogger(nil)
+
+	l := Logger()
+	if l == nil {
+		t.Fatal("Logger() returned nil")
+	}
+	// After Logger() returns, slog.Default() must point to the same logger.
+	if slog.Default() != l {
+		t.Errorf("slog.Default() not synced after lazy Logger() init")
 	}
 }
