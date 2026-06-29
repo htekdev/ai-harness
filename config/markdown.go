@@ -124,10 +124,12 @@ func ParseToolMarkdown(data []byte, name string) (*ToolConfig, error) {
 
 	// Parse frontmatter as a partial tool config (no name/description)
 	type toolFrontmatter struct {
-		Parameters map[string]ParamConfig `yaml:"parameters"`
-		Script     string                 `yaml:"script"`
-		TimeoutMS  int                    `yaml:"timeout_ms,omitempty"`
-		Async      bool                   `yaml:"async,omitempty"`
+		Parameters   map[string]ParamConfig `yaml:"parameters"`
+		Script       string                 `yaml:"script"`
+		TimeoutMS    int                    `yaml:"timeout_ms,omitempty"`
+		Async        bool                   `yaml:"async,omitempty"`
+		Verify       string                 `yaml:"verify,omitempty"`
+		VerifyPolicy *VerifyPolicyConfig    `yaml:"verify_policy,omitempty"`
 	}
 
 	var fm toolFrontmatter
@@ -141,11 +143,13 @@ func ParseToolMarkdown(data []byte, name string) (*ToolConfig, error) {
 	}
 
 	return &ToolConfig{
-		Name:        name,
-		Description: description,
-		Parameters:  fm.Parameters,
-		Script:      fm.Script,
-		TimeoutMS:   fm.TimeoutMS,
+		Name:         name,
+		Description:  description,
+		Parameters:   fm.Parameters,
+		Script:       fm.Script,
+		TimeoutMS:    fm.TimeoutMS,
+		Verify:       fm.Verify,
+		VerifyPolicy: fm.VerifyPolicy,
 	}, nil
 }
 
@@ -158,10 +162,12 @@ func ParseHookMarkdown(data []byte, name string) (*HookConfig, error) {
 	}
 
 	type hookFrontmatter struct {
-		Event    string `yaml:"event"`
-		Priority int    `yaml:"priority,omitempty"`
-		When     string `yaml:"when,omitempty"`
-		Script   string `yaml:"script"`
+		Event        string              `yaml:"event"`
+		Priority     int                 `yaml:"priority,omitempty"`
+		When         string              `yaml:"when,omitempty"`
+		Script       string              `yaml:"script"`
+		Verify       string              `yaml:"verify,omitempty"`
+		VerifyPolicy *VerifyPolicyConfig `yaml:"verify_policy,omitempty"`
 	}
 
 	var fm hookFrontmatter
@@ -174,11 +180,13 @@ func ParseHookMarkdown(data []byte, name string) (*HookConfig, error) {
 	}
 
 	return &HookConfig{
-		Event:    fm.Event,
-		Handler:  name,
-		Script:   fm.Script,
-		When:     fm.When,
-		Priority: fm.Priority,
+		Event:        fm.Event,
+		Handler:      name,
+		Script:       fm.Script,
+		Verify:       fm.Verify,
+		When:         fm.When,
+		Priority:     fm.Priority,
+		VerifyPolicy: fm.VerifyPolicy,
 	}, nil
 }
 

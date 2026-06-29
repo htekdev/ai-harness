@@ -6,7 +6,7 @@ agent that exercises **every Phase 5 governance primitive**:
 | Primitive          | How it shows up                                                       |
 | ------------------ | --------------------------------------------------------------------- |
 | System prompt      | `harness.md` body — describes the agent's contract                    |
-| Tool artifacts     | `.harness/tools/{web_fetch,run_command,self_check}.md`                |
+| Tool artifacts     | `.harness/tools/{web_fetch,run_command,self_check,create_repo}.md`    |
 | Hook artifacts     | `.harness/hooks/*.md` — audit, policy, command guard, path guard      |
 | Tool policy (5.9)  | `tools_policy: { mode: allowlist, allow: [...], deny: [...] }`        |
 | Retry policy (5.7) | `model.retry` — bounded exponential backoff per model                 |

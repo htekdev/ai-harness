@@ -126,6 +126,44 @@ You are a test agent. Be helpful.
 	}
 }
 
+func TestLoadMarkdown_DelegationVerifyFrontmatter(t *testing.T) {
+	input := []byte(`---
+model:
+  name: gpt-4o
+  provider: copilot
+delegation:
+  max_depth: 3
+  verify: |
+    def run(result):
+      return json.encode({"verified": True})
+  max_verify_retries: 2
+  verify_policy:
+    on_exhausted: error
+---
+`)
+
+	doc, err := ParseMarkdown(input)
+	if err != nil {
+		t.Fatalf("ParseMarkdown error: %v", err)
+	}
+	cfg, err := Parse(doc.Frontmatter)
+	if err != nil {
+		t.Fatalf("Parse frontmatter error: %v", err)
+	}
+	if !contains(cfg.Delegation.Verify, `"verified": True`) {
+		t.Fatalf("expected delegation.verify to be parsed, got %q", cfg.Delegation.Verify)
+	}
+	if cfg.Delegation.MaxVerifyRetries != 2 {
+		t.Fatalf("expected max_verify_retries=2, got %d", cfg.Delegation.MaxVerifyRetries)
+	}
+	if cfg.Delegation.VerifyPolicy == nil {
+		t.Fatal("expected delegation.verify_policy to be parsed")
+	}
+	if cfg.Delegation.VerifyPolicy.OnExhausted != "error" {
+		t.Fatalf("expected delegation.verify_policy.on_exhausted=error, got %q", cfg.Delegation.VerifyPolicy.OnExhausted)
+	}
+}
+
 func TestParseToolMarkdown(t *testing.T) {
 	input := []byte(`---
 parameters:
@@ -159,6 +197,46 @@ Read a file from the workspace and return its contents.
 
 	if !contains(tool.Script, "fs.read") {
 		t.Errorf("expected script with fs.read, got %q", tool.Script)
+	}
+}
+
+func TestParseToolMarkdown_WithVerify(t *testing.T) {
+	input := []byte(`---
+parameters:
+  owner: { type: string, required: true }
+  name: { type: string, required: true }
+script: |
+  def run(args):
+      return "ok"
+verify: |
+  def run(result):
+      return json.encode({"verified": True})
+verify_policy:
+  max_retries: 3
+  on_exhausted: error
+  timeout_per_attempt: 30s
+---
+`)
+
+	tool, err := ParseToolMarkdown(input, "create_repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !contains(tool.Verify, `"verified": True`) {
+		t.Fatalf("expected verify script to be parsed, got %q", tool.Verify)
+	}
+	if tool.VerifyPolicy == nil {
+		t.Fatal("expected verify_policy to be parsed")
+	}
+	if tool.VerifyPolicy.MaxRetries != 3 {
+		t.Fatalf("expected max_retries=3, got %d", tool.VerifyPolicy.MaxRetries)
+	}
+	if tool.VerifyPolicy.OnExhausted != "error" {
+		t.Fatalf("expected on_exhausted=error, got %q", tool.VerifyPolicy.OnExhausted)
+	}
+	if tool.VerifyPolicy.TimeoutPerAttempt != "30s" {
+		t.Fatalf("expected timeout_per_attempt=30s, got %q", tool.VerifyPolicy.TimeoutPerAttempt)
 	}
 }
 
@@ -196,6 +274,36 @@ Blocks path traversal attempts.
 
 	if hook.When != `payload["name"] == "read_file"` {
 		t.Errorf("unexpected when: %q", hook.When)
+	}
+}
+
+func TestParseHookMarkdown_WithVerify(t *testing.T) {
+	input := []byte(`---
+event: delegation.post_verify
+script: |
+  def handle(event, payload):
+      return allow()
+verify: |
+  def run(result):
+      return json.encode({"verified": True})
+verify_policy:
+  max_retries: 2
+---
+`)
+
+	hook, err := ParseHookMarkdown(input, "verify_claims")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !contains(hook.Verify, `"verified": True`) {
+		t.Fatalf("expected verify script to be parsed, got %q", hook.Verify)
+	}
+	if hook.VerifyPolicy == nil {
+		t.Fatal("expected verify_policy to be parsed")
+	}
+	if hook.VerifyPolicy.MaxRetries != 2 {
+		t.Fatalf("expected max_retries=2, got %d", hook.VerifyPolicy.MaxRetries)
 	}
 }
 
