@@ -32,10 +32,10 @@ docs/
 │   ├── SUMMARY.md        # Sidebar / TOC
 │   ├── introduction.md   # Landing page
 │   ├── getting-started.md
-│   ├── concepts/         # (Phase 6.1 follow-ups)
-│   ├── guides/
-│   ├── reference/
-│   ├── examples/
+│   ├── concepts/         # Mental model, primitives, governance
+│   ├── guides/           # End-to-end workflows and operations
+│   ├── reference/        # CLI, schema, artifacts, event catalog
+│   ├── examples/         # Narrative walkthroughs tied to runnable configs
 │   └── project/          # ADRs, roadmap, contributing
 └── adr/                  # ADRs (source of truth, also linked from /project)
 ```
@@ -50,14 +50,16 @@ docs/
 
 ## Status
 
-Phase 6.1 ships the scaffold + the [Quickstart](./src/getting-started.md).
-Remaining pages (`concepts/*`, `guides/*`, `reference/*`, `examples/*`,
-`project/*`) are stubbed in `SUMMARY.md` and will be filled in over the rest
-of Phase 6.
+The Phase 6 docs foundation is already shipped: mdBook scaffold, the
+[Quickstart](./src/getting-started.md), concept pages, reference content,
+guides, examples, and project docs are all live in this tree. Remaining Phase 6
+work is breadth/polish, additional examples, and keeping the eventual htek.dev
+mirror in sync.
 
-## Why not auto-publish in this PR?
+## Publishing
 
-CI publishing (GitHub Pages) is a Phase 6.1 follow-up — once the scaffold is
-on `main`, we wire a `pages.yml` workflow that runs `mdbook build` and
-publishes the artifact. Until then, contributors preview locally with
+GitHub Pages publishing is active via
+[`.github/workflows/pages.yml`](../.github/workflows/pages.yml): pushes to
+`main` that touch `docs/**` build the mdBook and deploy it to
+<https://htekdev.github.io/ai-harness/>. For local iteration, use
 `mdbook serve`.

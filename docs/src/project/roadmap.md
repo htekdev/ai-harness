@@ -28,8 +28,8 @@ non-obvious design constraints captured in their issue threads.
 | 1 | CLI & Developer Experience | ✅ Shipped |
 | 2 | Dynamic Context & Memory | 🚧 In progress |
 | 3 | Async Tool Calling | 📋 Planned |
-| 4 | Event Sources (Extension Parity) | 📋 Planned |
-| 5 | Production Hardening | 🚧 In progress |
+| 4 | Event Sources (Extension Parity) | ✅ Shipped |
+| 5 | Production Hardening | ✅ Shipped |
 | 6 | Community & Launch | 🚧 In progress |
 
 The phases are **sequenced**, not strict gates: hardening and community work
@@ -115,89 +115,115 @@ Where to contribute:
 
 ---
 
-## Phase 4 — Event Sources (Extension Parity) 📋
+## Phase 4 — Event Sources (Extension Parity) ✅
 
-**Goal:** close the gap between what Copilot CLI extensions can do (timers,
-HTTP servers, file watchers, secrets, databases) and what the harness supports
-natively.
-
-Planned event sources:
-
-| Type | Purpose |
-|------|---------|
-| `timer` | Cron / interval triggers. |
-| `http` | Inbound webhook routes. |
-| `fs` | File watcher with hot-reload. |
-
-Planned Starlark modules:
-
-- `secrets.*` — typed secret access (replaces raw `env()` for sensitive values).
-- `db.*` — SQLite query/exec primitives.
-- `session.*` — durable cross-restart state.
-- `server.*` — HTTP server registration.
-- `timer.*` — interval / one-shot timers.
-
-Where to contribute:
-
-- File-watcher prior art exists in the rocha-family extensions; PRs that port
-  one event source at a time (timer first) are very welcome once the
-  `events/` package skeleton lands.
-
----
-
-## Phase 5 — Production Hardening 🚧
-
-Mostly shipped — what remains is incremental polish.
+**Goal:** close the gap between what Copilot-style extensions can do at the
+edge (external input, durable offsets, long-running serve loops) and what the
+harness supports natively.
 
 Shipped:
 
-- Structured logging (`slog`).
-- OpenTelemetry tracing — spans per tool call, delegation, completion. See the
-  [observability guide](../guides/observability.md).
-- Network sandbox with default-deny domain allowlists for `http.*`. See the
-  [`harness.md` reference](../reference/harness-md.md#network).
-- `finish_reason` strict guard — `length` triggers retry, `content_filter` is a
-  hard error, unknown reasons are retriable errors.
-- Shape A typed artifact bundle loader for `.harness/{plugins,builtins,overrides}`.
-- Claims verification — Ralph loop at the delegation boundary.
+- Telegram and MeshWire input sources with durable offsets, replier contracts,
+  and `harness serve` runtime integration.
+- Declarative `serve:` config so a harness can describe source wiring in
+  `harness.md` instead of via repeated CLI flags.
+- Eval coverage for source runtime behavior, especially durable offsets and
+  serve-mode orchestration.
 
-In progress:
+Follow-on work:
 
-- Streaming mode polish for the CLI (token-by-token output).
-- Per-model and per-tool rate limiting.
-- Tool allow/deny lists at the config level (today: hooks-only enforcement).
+- Additional timer / webhook / file-watcher style sources remain good
+  community contributions, but they are no longer blockers for launch.
+
+---
+
+## Phase 5 — Production Hardening ✅
+
+**Goal:** make the harness safe to run as a long-lived, observable, governed
+service instead of only as a local CLI demo.
+
+Shipped:
+
+- 5.1 typed errors.
+- 5.2 structured logging (`slog`).
+- 5.3 OpenTelemetry tracing — spans per tool call, delegation, completion. See
+  the [observability guide](../guides/observability.md).
+- 5.4 streaming CLI output.
+- 5.5 network sandbox with default-deny domain allowlists for `http.*`. See
+  the [`harness.md` reference](../reference/harness-md.md#network).
+- 5.6 rate limiting.
+- 5.7 configurable retry/backoff policy.
+- 5.8 self-augmenting harness primitives.
+- 5.9 config-driven tool allow/deny lists.
+- 5.10 deployment recipes.
+
+Status:
+
+- Phase 5 closed on 2026-06-14 03:00 CT with all ten production-hardening
+  milestones merged.
+- The live Telegram bot was rebuilt on `main` at 2026-06-14 03:09 CT.
 
 ---
 
 ## Phase 6 — Community & Launch 🚧
 
-You are reading part of this phase right now.
+**Goal:** move AI Harness from “fully featured, production-grade Go harness” to
+“the reference implementation of Harness as Code with real adopters.”
 
-Shipped:
+Kickoff status:
 
-- mdBook docs site at <https://htekdev.github.io/ai-harness/>.
-- All concept pages: harness-as-code, tools, hooks, delegation, governance,
-  verification.
-- All guides: writing a tool, writing a hook, writing a context, deployment,
-  observability.
-- All reference pages: `harness.md` frontmatter, tool artifact, hook artifact,
-  CLI, Starlark built-ins.
-- Examples: governed-agent flagship walkthrough.
-- `CHANGELOG.md` (Keep-a-Changelog v1.1.0).
-- Contributing guide — see [Contributing](./contributing.md).
+- Phase 5 is fully closed.
+- The Phase 6 foundation is already live on `main`: mdBook docs site, the
+  Quickstart, concept pages, the governed-agent example, `CHANGELOG.md`, and
+  GitHub Pages publishing at <https://htekdev.github.io/ai-harness/>.
 
-In progress:
+Tracks:
 
-- This page (Roadmap).
-- [ADR Index](./adr-index.md).
-- Network sandboxing guide (stretch).
-- v0.6.0 release tag — pending versioning decision (see open questions).
+### 6.1 Documentation site
+
+- Finish the remaining guides, reference pages, examples, and deployment
+  coverage needed for a complete mdBook that can also mirror onto htek.dev.
+
+### 6.2 Launch sequence
+
+- Cut the release/tag sequence once docs + examples are complete, publish the
+  launch post, distribute to core Go / agent communities, and prepare the
+  tutorial/video, blueprint bundle, and conference submissions.
+- Detailed execution for the launch sequence is tracked in issue #98.
+
+### 6.3 Reference content
+
+- Publish the article/tutorial set that explains the thesis, governance model,
+  migration story, and production patterns around Harness as Code.
+
+### 6.4 Future extension points (post-launch)
+
+- Plugin packages (Go modules) for external tool bundles.
+- Hook packs as reusable Markdown governance artifacts.
+- Harness inheritance / overlays.
+- VS Code validation + Starlark-highlighting support.
+- Community marketplace patterns.
+
+Sequencing:
+
+1. **Week 1:** docs/getting-started, concepts/tools, concepts/hooks, and one
+   full governed-agent example.
+2. **Week 2:** fill remaining concepts/guides/reference pages, polish
+   examples, and cut the first release candidate decision.
+3. **Week 3:** publish the launch post, cut the public release tag, and post to
+   r/golang, Hacker News, and Go Discord.
+4. **Week 4+:** tutorial series, blueprint bundle, and conference proposals.
 
 Open questions:
 
-- 🤔 **v0.6.0 vs v1.0.0-rc1.** All Phase 6.1/6.2 work is accumulated on `main`;
-  the question is whether the next tag is a 0.x release or our first
-  release-candidate for 1.0.
+- 🤔 **Docs platform long-term.** mdBook is the current repository source of
+  truth; revisit Astro/Starlight only if the htek.dev mirror eventually needs a
+  different publishing stack.
+- 🤔 **v1.0.0 SemVer commitments.** Likely-stable surfaces: CLI flags &
+  subcommands, hook event catalog, Starlark builtins, config schema, exit
+  codes. Likely-unstable: internal Go APIs.
+- 🤔 **Naming / trademark.** Decide whether “Harness as Code” stays a descriptive
+  phrase or becomes a formalized wordmark before launch.
 
 ---
 
@@ -210,7 +236,7 @@ Open questions:
 | 3 | CLI `--watch` mode? | Yes, Phase 1 stretch. |
 | 4 | Hook packs — Go modules or MD bundles? | MD bundles. |
 | 5 | Event sources — config-only or runtime-registrable? | Both (config primary). |
-| 6 | v0.6.0 vs v1.0.0-rc1? | Open. Feedback welcome. |
+| 6 | Which surfaces are stable for v1.0.0? | CLI / hooks / Starlark / config / exit codes. |
 
 ---
 
