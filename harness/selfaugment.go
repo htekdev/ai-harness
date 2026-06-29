@@ -105,7 +105,7 @@ func createHookDefinition() tools.Definition {
 			{Name: "name", Type: tools.TypeString, Required: true,
 				Description: "Hook handler name. Lowercase, digits, underscore, hyphen only (1-64 chars)."},
 			{Name: "event", Type: tools.TypeString, Required: true,
-				Description: "Lifecycle event to fire on. One of: session.start, session.end, turn.start, turn.end, tool.pre, tool.post, completion.pre, completion.post, delegation.pre, delegation.post, error."},
+				Description: "Lifecycle event to fire on. One of: session.start, session.end, turn.start, turn.end, tool.pre, tool.post, completion.pre, completion.post, delegation.pre, delegation.post, delegation.post_verify, agent.stop, error."},
 			{Name: "script", Type: tools.TypeString, Required: true,
 				Description: "Starlark source code. Must define `def handle(event): ...` and return one of allow(), block(reason), or modify(...)."},
 			{Name: "when", Type: tools.TypeString, Required: false,
@@ -503,6 +503,8 @@ var allHookEvents = []hooks.Event{
 	hooks.EventCompletionPost,
 	hooks.EventDelegatePre,
 	hooks.EventDelegatePost,
+	hooks.EventDelegatePostVerify,
+	hooks.EventAgentStop,
 	hooks.EventError,
 }
 

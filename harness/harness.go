@@ -292,11 +292,14 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 
 	h.agent = agent.New(agent.Options{
-		Client:  client,
-		Tools:   registry,
-		Hooks:   hookSystem,
-		Context: ctxMgr,
-		Logger:  Logger().With("component", "harness"),
+		Client:            client,
+		Tools:             registry,
+		Hooks:             hookSystem,
+		Context:           ctxMgr,
+		Logger:            Logger().With("component", "harness"),
+		MaxToolIterations: cfg.ExitPolicy.MaxIterations,
+		ExitPolicyMode:    cfg.ExitPolicy.Mode,
+		OnMaxIterations:   cfg.ExitPolicy.OnMaxIterations,
 	})
 
 	// Register self-augmenting meta-tools (Phase 5.8). These let the

@@ -32,7 +32,11 @@ const (
 	// same delegate (Ralph loop) up to MaxVerifyRetries with the
 	// failure reason injected. See issue #103.
 	EventDelegatePostVerify Event = "delegation.post_verify"
-	EventError              Event = "error"
+	// EventAgentStop fires when the model naturally stops (no tool calls) and
+	// before the harness accepts the turn as complete. Hooks can block to
+	// continue the loop with a follow-up prompt.
+	EventAgentStop Event = "agent.stop"
+	EventError     Event = "error"
 )
 
 const CustomEventPrefix = "custom."
@@ -98,6 +102,7 @@ func ValidEvents() []Event {
 		EventDelegatePre,
 		EventDelegatePost,
 		EventDelegatePostVerify,
+		EventAgentStop,
 		EventError,
 	}
 }

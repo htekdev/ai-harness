@@ -221,6 +221,34 @@ def run(args):
 	}
 }
 
+func TestEngine_AgentRuntimeDoneFlagAndVerificationChain(t *testing.T) {
+	engine := NewEngine()
+	toolRunner, err := engine.CompileToolScript("done_tool", `
+def run(args):
+    before = ctx.agent.done_flag()
+    ack = ctx.agent.set_done_flag(summary="all good", claims=[{"kind": "file", "path": "README.md"}])
+    after = ctx.agent.done_flag()
+    verification = ctx.agent.run_verification_chain()
+    return json.encode({
+        "before": before,
+        "after": after,
+        "ack": ack["acknowledged"],
+        "ok": verification["ok"],
+    })
+`)
+	if err != nil {
+		t.Fatalf("compile tool: %v", err)
+	}
+
+	result, err := toolRunner.Run(WithTurnState(context.Background()), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("tool run: %v", err)
+	}
+	if !strings.Contains(result, `"before":false`) || !strings.Contains(result, `"after":true`) || !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("unexpected tool result: %s", result)
+	}
+}
+
 func TestExecHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return

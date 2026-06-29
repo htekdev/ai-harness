@@ -38,6 +38,7 @@ turn.start       turn.end
 tool.pre         tool.post
 completion.pre   completion.post
 delegation.pre   delegation.post   delegation.post_verify
+agent.stop
 error
 ```
 

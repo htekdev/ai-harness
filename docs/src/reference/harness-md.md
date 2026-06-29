@@ -263,8 +263,29 @@ Recognized event names (full list in [Hook Artifact Schema](./hook-artifact.md))
 
 - `tool.pre`, `tool.post`
 - `completion.pre`, `completion.post`
-- `delegate.pre`, `delegate.post`
-- `agent.start`, `agent.turn`, `agent.stop`
+- `delegation.pre`, `delegation.post`, `delegation.post_verify`
+- `agent.stop`
+- `session.start`, `session.end`, `turn.start`, `turn.end`, `error`
+
+---
+
+## `exit_policy`
+
+Controls when a turn is allowed to stop after the model returns no tool calls.
+
+```yaml
+exit_policy:
+  mode: hook
+  max_iterations: 50
+  on_max_iterations: error
+```
+
+| Field               | Type   | Default   | Notes |
+|---------------------|--------|-----------|-------|
+| `mode`              | string | `natural` | `natural` \| `done_tool` \| `hook` \| `hybrid` |
+| `max_iterations`    | int    | `0`       | `0` means use runtime default (`20`) |
+| `on_max_iterations` | string | `error`   | `error` \| `warn_and_exit` \| `continue_with_warning` |
+| `stop_hook_timeout` | string | _none_    | Reserved for future hook timeout enforcement |
 
 ---
 

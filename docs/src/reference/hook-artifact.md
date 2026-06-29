@@ -108,6 +108,7 @@ The full catalog supported by `hooks.IsValidEvent`:
 | `delegation.pre`          | Before a sub-agent delegation starts.                               | `{agent, prompt, depth, ...}`.                                                |
 | `delegation.post`         | After a sub-agent delegation completes.                             | `{agent, result, depth, ...}`.                                                |
 | `delegation.post_verify`  | After `delegation.post` when the delegation declares `verify:`. Hooks may `block(reason)` to trigger a Ralph-loop retry up to `MaxVerifyRetries`. See [#103](https://github.com/htekdev/ai-harness/issues/103). | Same shape as `delegation.post` plus `attempt` count. |
+| `agent.stop`              | After natural completion (no tool calls), before the turn is accepted as final. Hooks may `block(reason)` to continue the loop with the reason as next user input. | Turn result `{response, tool_calls, tool_results, usage}`. |
 | `error`                   | An unrecoverable error surfaces in the agent loop.                  | Error envelope.                                                              |
 
 In addition, two **prefixes** are accepted as valid event names:

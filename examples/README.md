@@ -78,6 +78,7 @@ examples/
 │       ├── identity.md
 │       └── plugins/
 │           └── copilot-runtime.md
+├── autopilot-agent/       ← Exit-policy example (done + agent.stop gate)
 ├── policies/              ← Policy configuration examples
 │   ├── model-config.md    ← Model settings artifact
 │   └── delegation.md      ← Sub-agent rules

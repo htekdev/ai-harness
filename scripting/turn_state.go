@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"go.starlark.net/starlark"
@@ -16,6 +17,15 @@ type turnStateStore struct {
 	mu     sync.RWMutex
 	values map[string]any
 }
+
+const (
+	// TurnStateAgentDoneFlagKey tracks whether the agent explicitly signaled done.
+	TurnStateAgentDoneFlagKey = "agent.done_flag"
+	// TurnStateAgentDoneSummaryKey stores the done summary passed by done tool.
+	TurnStateAgentDoneSummaryKey = "agent.done_summary"
+	// TurnStateAgentDoneClaimsKey stores structured claims passed by done tool.
+	TurnStateAgentDoneClaimsKey = "agent.done_claims"
+)
 
 // WithTurnState attaches a per-turn scratchpad to the context so hooks and tools
 // can exchange structured data during a single agent turn.
@@ -45,7 +55,33 @@ func ctxModule() starlark.Value {
 		"delete":   starlark.NewBuiltin("ctx.delete", builtinCtxDelete),
 		"clear":    starlark.NewBuiltin("ctx.clear", builtinCtxClear),
 		"snapshot": starlark.NewBuiltin("ctx.snapshot", builtinCtxSnapshot),
+		"agent":    &agentRuntimeValue{},
 	})
+}
+
+type agentRuntimeValue struct{}
+
+func (a *agentRuntimeValue) String() string       { return "ctx.agent" }
+func (a *agentRuntimeValue) Type() string         { return "ctx.agent" }
+func (a *agentRuntimeValue) Freeze()              {}
+func (a *agentRuntimeValue) Truth() starlark.Bool { return starlark.True }
+func (a *agentRuntimeValue) Hash() (uint32, error) {
+	return 0, fmt.Errorf("unhashable type: %s", a.Type())
+}
+func (a *agentRuntimeValue) AttrNames() []string {
+	return []string{"done_flag", "set_done_flag", "run_verification_chain"}
+}
+func (a *agentRuntimeValue) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "done_flag":
+		return starlark.NewBuiltin("ctx.agent.done_flag", builtinAgentDoneFlag), nil
+	case "set_done_flag":
+		return starlark.NewBuiltin("ctx.agent.set_done_flag", builtinAgentSetDoneFlag), nil
+	case "run_verification_chain":
+		return starlark.NewBuiltin("ctx.agent.run_verification_chain", builtinAgentRunVerificationChain), nil
+	default:
+		return nil, nil
+	}
 }
 
 func builtinCtxSet(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -148,6 +184,74 @@ func builtinCtxSnapshot(thread *starlark.Thread, _ *starlark.Builtin, args starl
 	}
 	store.mu.RUnlock()
 	return goToStarlark(snapshot)
+}
+
+func builtinAgentDoneFlag(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := starlark.UnpackArgs("ctx.agent.done_flag", args, kwargs); err != nil {
+		return nil, err
+	}
+	store, err := requireTurnState(thread, "ctx.agent.done_flag")
+	if err != nil {
+		return nil, err
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	v, _ := store.values[TurnStateAgentDoneFlagKey]
+	flag, _ := v.(bool)
+	return starlark.Bool(flag), nil
+}
+
+func builtinAgentSetDoneFlag(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var summary string
+	claimsVal := starlark.Value(starlark.None)
+	if err := starlark.UnpackArgs("ctx.agent.set_done_flag", args, kwargs, "summary?", &summary, "claims?", &claimsVal); err != nil {
+		return nil, err
+	}
+	store, err := requireTurnState(thread, "ctx.agent.set_done_flag")
+	if err != nil {
+		return nil, err
+	}
+	store.mu.Lock()
+	store.values[TurnStateAgentDoneFlagKey] = true
+	store.values[TurnStateAgentDoneSummaryKey] = summary
+	if claimsVal != starlark.None {
+		store.values[TurnStateAgentDoneClaimsKey] = starlarkToGo(claimsVal)
+	}
+	store.mu.Unlock()
+	return goToStarlark(map[string]any{"acknowledged": true})
+}
+
+func builtinAgentRunVerificationChain(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := starlark.UnpackArgs("ctx.agent.run_verification_chain", args, kwargs); err != nil {
+		return nil, err
+	}
+	store, err := requireTurnState(thread, "ctx.agent.run_verification_chain")
+	if err != nil {
+		return nil, err
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	// Optional explicit override for tests/hooks.
+	if raw, ok := store.values["agent.verification_result"]; ok {
+		if m, ok := raw.(map[string]any); ok {
+			return goToStarlark(m)
+		}
+	}
+
+	done, _ := store.values[TurnStateAgentDoneFlagKey].(bool)
+	if !done {
+		return goToStarlark(map[string]any{
+			"ok":     false,
+			"reason": "done flag not set",
+		})
+	}
+
+	summary, _ := store.values[TurnStateAgentDoneSummaryKey].(string)
+	return goToStarlark(map[string]any{
+		"ok":     true,
+		"reason": strings.TrimSpace(summary),
+	})
 }
 
 func requireTurnState(thread *starlark.Thread, name string) (*turnStateStore, error) {
