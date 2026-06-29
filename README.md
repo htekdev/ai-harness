@@ -87,6 +87,16 @@ Use **artifacts/definitions** as the core noun set now, and treat any `extension
 - **Portable** — Works with GitHub Copilot, OpenAI, or any compatible chat completions API.
 - **Testable** — Built-in eval framework validates agent behavior against real models in CI.
 
+### Accelerating Fragmentation — Portability Wins
+
+The AI coding agent landscape is fragmenting rapidly. GitHub Copilot is biased toward VS Code and GitHub Actions. Claude Code is tied to Anthropic's API. Codex is bound to OpenAI's frontier models. Pi is TypeScript-native. Xcode 27 (WWDC 2026) ships a dual-engine agent locked to Apple Foundation Models and the Swift/Apple ecosystem.
+
+Six major agents. Six vendor stacks. Every team that adopts one is implicitly inheriting its lock-in — governance rules, tool definitions, and system prompts trapped inside a single vendor's harness.
+
+**Harness as Code is the portable alternative.** Agent behavior lives in version-controlled Markdown artifacts that work across providers, survive model changes, and travel with your team — not with any single vendor's platform.
+
+> See [core.md](core.md) for the full vendor bias table and positioning thesis.
+
 ### Differentiation from OpenHarness (Category-Level)
 
 OpenHarness and AI Harness both operate in the **agent harness / agent infrastructure** category.
