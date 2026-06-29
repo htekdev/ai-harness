@@ -30,6 +30,29 @@ This tracker captures Hector's 2026-05-21 AI Harness brainstorm and the follow-u
 - https://github.com/htekdev/ai-harness/issues/20 (triggers)
 - https://github.com/htekdev/ai-harness/issues/21 (scheduling primitive)
 - https://github.com/htekdev/ai-harness/issues/22 (watcher adapters)
+- https://github.com/htekdev/ai-harness/issues/34 (extensions as first-class primitive)
+- https://github.com/htekdev/ai-harness/issues/66 (Phase 2 kickoff: dynamic context + memory)
+
+## Phase 2 kickoff (issue #66)
+
+Scope:
+- context source registry (pluggable sources feeding the context window)
+- memory tiers (core, working, long-term, events/audit)
+- compaction engine (start with deterministic truncation)
+- dynamic `when` evaluation for artifact activation
+- event persistence for replay/debug/audit
+
+Resolved architecture decisions:
+- **Event store:** start with flat-file JSONL (`~/.harness/sessions/<id>/events.jsonl`) behind an `EventStore` interface from day 1.
+- **Memory tiers:** explicit writes only (`memory.promote(...)`), no automatic promotion/demotion.
+- **Compaction:** LRU-style truncation first; model-based summarize/checkpoint remains opt-in follow-up.
+- **Condition engine:** reuse the existing per-turn Starlark evaluator (single evaluation path).
+
+Recommended implementation order:
+1. Context source registry + `when` integration
+2. Memory tiers + `memory.*` builtins
+3. Event persistence + events CLI surface
+4. Compaction strategy rollout (truncate first, summarize optional)
 
 ## Working design direction
 Durable event stream + projections + triggers + leased runtimes + schedule data.
