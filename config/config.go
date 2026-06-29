@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/htekdev/ai-harness/artifactsource"
 	"github.com/htekdev/ai-harness/harness/errs"
 	"github.com/htekdev/ai-harness/hooks"
 	"gopkg.in/yaml.v3"
@@ -14,16 +15,18 @@ import (
 
 // Config is the top-level harness configuration.
 type Config struct {
-	Model       ModelConfig        `yaml:"model" json:"model"`
-	Models      []ModelConfig      `yaml:"models,omitempty" json:"models,omitempty"`
-	Context     ContextConfig      `yaml:"context" json:"context"`
-	Tools       []ToolConfig       `yaml:"tools" json:"tools"`
-	ToolsPolicy *ToolsPolicyConfig `yaml:"tools_policy,omitempty" json:"tools_policy,omitempty"`
-	Hooks       []HookConfig       `yaml:"hooks" json:"hooks"`
-	Delegation  DelegationConfig   `yaml:"delegation,omitempty" json:"delegation,omitempty"`
-	Meta        *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
-	Serve       *ServeConfig       `yaml:"serve,omitempty" json:"serve,omitempty"`
-	Network     *NetworkConfig     `yaml:"network,omitempty" json:"network,omitempty"`
+	Model           ModelConfig                 `yaml:"model" json:"model"`
+	Models          []ModelConfig               `yaml:"models,omitempty" json:"models,omitempty"`
+	Context         ContextConfig               `yaml:"context" json:"context"`
+	Tools           []ToolConfig                `yaml:"tools" json:"tools"`
+	ToolsPolicy     *ToolsPolicyConfig          `yaml:"tools_policy,omitempty" json:"tools_policy,omitempty"`
+	Hooks           []HookConfig                `yaml:"hooks" json:"hooks"`
+	Delegation      DelegationConfig            `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+	Meta            *MetaBuiltinConfig          `yaml:"meta,omitempty" json:"meta,omitempty"`
+	Serve           *ServeConfig                `yaml:"serve,omitempty" json:"serve,omitempty"`
+	Network         *NetworkConfig              `yaml:"network,omitempty" json:"network,omitempty"`
+	ArtifactSources []artifactsource.SourceSpec `yaml:"artifact_sources,omitempty" json:"artifact_sources,omitempty"`
+	TrustedSources  []string                    `yaml:"trusted_sources,omitempty" json:"trusted_sources,omitempty"`
 }
 
 // NetworkConfig configures the harness network sandbox enforced by the
@@ -253,6 +256,43 @@ func (c *Config) Validate() error {
 
 	if err := c.Serve.Validate(); err != nil {
 		issues = append(issues, err.Error())
+	}
+
+	trusted := make(map[string]struct{}, len(c.TrustedSources))
+	for i, source := range c.TrustedSources {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			issues = append(issues, fmt.Sprintf("trusted_sources[%d] cannot be empty", i))
+			continue
+		}
+		trusted[source] = struct{}{}
+	}
+	for i, source := range c.ArtifactSources {
+		sourceType := strings.ToLower(strings.TrimSpace(source.Type))
+		switch sourceType {
+		case "local":
+			if strings.TrimSpace(source.Path) == "" {
+				issues = append(issues, fmt.Sprintf("artifact_sources[%d].path is required for local sources", i))
+			}
+		case "git":
+			url := strings.TrimSpace(source.URL)
+			if url == "" {
+				issues = append(issues, fmt.Sprintf("artifact_sources[%d].url is required for git sources", i))
+			}
+			if strings.TrimSpace(source.Ref) == "" {
+				issues = append(issues, fmt.Sprintf("artifact_sources[%d].ref is required for git sources", i))
+			} else if !artifactsource.IsPinnedGitRef(source.Ref) {
+				issues = append(issues, fmt.Sprintf("artifact_sources[%d].ref %q appears mutable; use a tag or commit SHA", i, source.Ref))
+			}
+			if _, ok := trusted[url]; !ok {
+				issues = append(issues, fmt.Sprintf("artifact_sources[%d].url %q must be allowlisted in trusted_sources", i, source.URL))
+			}
+		default:
+			issues = append(issues, fmt.Sprintf("artifact_sources[%d].type %q is unsupported (supported: local, git)", i, source.Type))
+		}
+		if source.Checksum != "" && !strings.HasPrefix(strings.TrimSpace(source.Checksum), "sha256:") {
+			issues = append(issues, fmt.Sprintf("artifact_sources[%d].checksum must use sha256:<hex>", i))
+		}
 	}
 
 	if len(issues) > 0 {

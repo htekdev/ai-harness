@@ -181,6 +181,48 @@ func LoadAndRegister(baseDir string) (*Registry, error) {
 	return reg, nil
 }
 
+// LoadTreeFromSources resolves artifact sources and loads all discovered trees.
+func LoadTreeFromSources(projectDir string, sources []SourceSpec, opts ResolveOptions) ([]*Artifact, error) {
+	roots, err := ResolveSourceRoots(projectDir, sources, opts)
+	if err != nil {
+		return nil, err
+	}
+	all := make([]*Artifact, 0)
+	seen := make(map[string]bool)
+	for _, root := range roots {
+		artifacts, err := LoadTree(root)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range artifacts {
+			if seen[a.Source] {
+				continue
+			}
+			seen[a.Source] = true
+			all = append(all, a)
+		}
+	}
+	return all, nil
+}
+
+// LoadAndRegisterFromSources resolves source trees, loads artifacts, and registers them.
+func LoadAndRegisterFromSources(projectDir string, sources []SourceSpec, opts ResolveOptions) (*Registry, error) {
+	artifacts, err := LoadTreeFromSources(projectDir, sources, opts)
+	if err != nil {
+		return nil, err
+	}
+	reg := NewRegistry()
+	for _, a := range artifacts {
+		if err := reg.Register(a); err != nil {
+			return nil, fmt.Errorf("register %s: %w", a.Source, err)
+		}
+	}
+	if err := reg.ValidateDependencies(); err != nil {
+		return nil, err
+	}
+	return reg, nil
+}
+
 // splitFrontmatter extracts YAML frontmatter and markdown body.
 func splitFrontmatter(data []byte) ([]byte, string, error) {
 	content := strings.TrimPrefix(string(data), "\uFEFF")

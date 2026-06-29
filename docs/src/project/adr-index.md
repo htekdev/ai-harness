@@ -41,6 +41,7 @@ you if the ADR is unnecessary.
 |---|-------|--------|------|
 | [0001](https://github.com/htekdev/ai-harness/blob/main/docs/adr/0001-docs-platform.md) | Documentation platform: mdBook | Accepted | 2026-06-14 |
 | [0002](https://github.com/htekdev/ai-harness/blob/main/docs/adr/0002-artifact-first-naming.md) | Artifact-first naming; defer "extensions" as the primary abstraction | Accepted | 2026-06-18 |
+| [0003](https://github.com/htekdev/ai-harness/blob/main/docs/adr/0003-artifact-sources.md) | External artifact sources and trust boundary | Accepted | 2026-06-17 |
 
 > The table is hand-maintained. When you add a new ADR file, update this
 > table in the same PR. CI does not yet enforce this, but reviewers will.

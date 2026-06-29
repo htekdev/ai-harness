@@ -118,6 +118,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "pull":
+		if err := cmdPull(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "tools":
 		if err := cmdTools(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -168,6 +173,7 @@ Golden path  (install → scaffold → init → develop → validate → deploy 
   serve      Multi-source session: stdin + telegram + future input sources
   deploy     Run the harness non-interactively (CI/CD, single prompt in/out)
   inspect    Snapshot of runtime state: tools, hooks, agents, artifacts
+  pull       Fetch and cache external artifact sources
 
 Develop:
   tools      List registered tools
@@ -200,6 +206,7 @@ Examples:
   harness deploy --input "say hello"   # single-shot run
   harness deploy --dry-run             # validate without LLM call
   harness inspect                      # state snapshot
+  harness pull                         # fetch artifact sources
   harness inspect --verbose            # detailed snapshot
   harness context --verbose            # context window breakdown
 

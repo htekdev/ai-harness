@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/htekdev/ai-harness/artifactsource"
 	"github.com/htekdev/ai-harness/harness/errs"
 )
 
@@ -18,54 +19,75 @@ type LoadResult struct {
 // tools, hooks, and agents to be merged with the main config.
 // This is ADDITIVE — it never replaces inline definitions.
 func LoadDirectory(baseDir string) (*LoadResult, error) {
+	return LoadDirectoryWithSources(baseDir, nil, nil, false)
+}
+
+// LoadDirectoryWithSources scans .harness plus any configured artifact sources.
+func LoadDirectoryWithSources(baseDir string, sources []artifactsource.SourceSpec, trustedSources []string, refresh bool) (*LoadResult, error) {
 	result := &LoadResult{
 		Config: &Config{},
 		Agents: make(map[string]*AgentConfig),
 	}
 
-	harnessDir := filepath.Join(baseDir, ".harness")
-	if _, err := os.Stat(harnessDir); os.IsNotExist(err) {
-		return result, nil // .harness/ doesn't exist, that's fine
+	roots, err := artifactsource.ResolveSourceRoots(baseDir, sources, artifactsource.ResolveOptions{
+		TrustedSources: trustedSources,
+		Offline:        strings.EqualFold(os.Getenv("HARNESS_OFFLINE"), "1") || strings.EqualFold(os.Getenv("HARNESS_OFFLINE"), "true"),
+		Refresh:        refresh,
+	})
+	if err != nil {
+		return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "resolve artifact sources")
 	}
 
-	// Load tools from .harness/tools/
-	toolsDir := filepath.Join(harnessDir, "tools")
-	if tools, err := loadToolsFromDir(toolsDir); err != nil {
-		return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load .harness/tools")
-	} else {
-		result.Config.Tools = tools
-	}
-
-	// Load hooks from .harness/hooks/
-	hooksDir := filepath.Join(harnessDir, "hooks")
-	if hooks, err := loadHooksFromDir(hooksDir); err != nil {
-		return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load .harness/hooks")
-	} else {
-		result.Config.Hooks = hooks
-	}
-
-	// Load Shape A bundles from .harness/plugins/, .harness/builtins/,
-	// and .harness/overrides/. Each .md file may declare multiple tools
-	// and/or hooks in its frontmatter — we merge them all into the
-	// flat Tools/Hooks slices on the result config. This aligns the
-	// runtime config loader with the artifact loader (LoadTree) which
-	// already scans these subdirs for the typed-artifact registry.
-	for _, sub := range []string{"plugins", "builtins", "overrides"} {
-		bundleDir := filepath.Join(harnessDir, sub)
-		bundleTools, bundleHooks, err := loadBundlesFromDir(bundleDir)
-		if err != nil {
-			return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load .harness/%s", sub)
+	for _, harnessDir := range roots {
+		if _, err := os.Stat(harnessDir); os.IsNotExist(err) {
+			continue
 		}
-		result.Config.Tools = append(result.Config.Tools, bundleTools...)
-		result.Config.Hooks = append(result.Config.Hooks, bundleHooks...)
-	}
 
-	// Load agents from .harness/agents/
-	agentsDir := filepath.Join(harnessDir, "agents")
-	if agents, err := loadAgentsFromDir(agentsDir); err != nil {
-		return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load .harness/agents")
-	} else {
-		result.Agents = agents
+		// Load tools from <root>/tools/
+		toolsDir := filepath.Join(harnessDir, "tools")
+		if tools, err := loadToolsFromDir(toolsDir); err != nil {
+			return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load tools from %s", harnessDir)
+		} else {
+			result.Config.Tools = append(result.Config.Tools, tools...)
+		}
+
+		// Load hooks from <root>/hooks/
+		hooksDir := filepath.Join(harnessDir, "hooks")
+		if hooks, err := loadHooksFromDir(hooksDir); err != nil {
+			return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load hooks from %s", harnessDir)
+		} else {
+			result.Config.Hooks = append(result.Config.Hooks, hooks...)
+		}
+
+		// Load bundles directly from <root>/ (useful when source.path points
+		// at a plugins/builtins/overrides directory itself).
+		rootTools, rootHooks, err := loadBundlesFromDir(harnessDir)
+		if err != nil {
+			return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load bundles from %s", harnessDir)
+		}
+		result.Config.Tools = append(result.Config.Tools, rootTools...)
+		result.Config.Hooks = append(result.Config.Hooks, rootHooks...)
+
+		// Load Shape A bundles from plugins/builtins/overrides.
+		for _, sub := range []string{"plugins", "builtins", "overrides"} {
+			bundleDir := filepath.Join(harnessDir, sub)
+			bundleTools, bundleHooks, err := loadBundlesFromDir(bundleDir)
+			if err != nil {
+				return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load %s/%s", harnessDir, sub)
+			}
+			result.Config.Tools = append(result.Config.Tools, bundleTools...)
+			result.Config.Hooks = append(result.Config.Hooks, bundleHooks...)
+		}
+
+		// Load agents from <root>/agents/
+		agentsDir := filepath.Join(harnessDir, "agents")
+		agents, err := loadAgentsFromDir(agentsDir)
+		if err != nil {
+			return nil, errs.Wrap(errs.KindConfig, "config.loaddir", err, "load agents from %s", harnessDir)
+		}
+		for name, agent := range agents {
+			result.Agents[name] = agent
+		}
 	}
 
 	return result, nil
@@ -262,7 +284,7 @@ func LoadFull(configPath string) (*Config, map[string]*AgentConfig, error) {
 	}
 
 	baseDir := filepath.Dir(configPath)
-	dirResult, err := LoadDirectory(baseDir)
+	dirResult, err := LoadDirectoryWithSources(baseDir, cfg.ArtifactSources, cfg.TrustedSources, false)
 	if err != nil {
 		return nil, nil, errs.Wrap(errs.KindConfig, "config.loadfull", err, "load .harness directory")
 	}
