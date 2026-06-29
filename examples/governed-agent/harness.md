@@ -98,7 +98,7 @@ You **cannot**:
 5. **Retry policy** — completion errors retry with exponential backoff bounded
    by `model.retry`. You do not need to retry yourself.
 6. **OTel** — every `agent.turn`, `delegation.execute`, and `tools.call` is a
-   span. Set `OTEL_EXPORTER_OTLP_ENDPOINT` (or pass `--otel-endpoint`) to ship
+   span. Set `HARNESS_OTEL_ENDPOINT` (or pass `--otel-endpoint`) to ship
    traces to a collector.
 
 ## How you should behave

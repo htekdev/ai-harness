@@ -12,6 +12,9 @@ to set `HARNESS_OTEL_ENDPOINT` and run the binary. Everything below
 works the same whether the harness is invoked from a CLI, a systemd
 unit, or a Docker container.
 
+AI Harness reads `HARNESS_OTEL_*` variables by design (not ambient
+standard `OTEL_*` SDK vars) so tracing behavior is explicit and isolated.
+
 ## Why observability is a first-class concern
 
 Most harnesses treat tracing as a "wire up your own SDK" exercise.

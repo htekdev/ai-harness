@@ -16,8 +16,12 @@ All three share the same configuration model:
 2. An optional **`.harness/`** directory of tools, hooks, sub-agents.
 3. Provider credentials in environment variables (`OPENAI_API_KEY`,
    `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, …).
-4. Optional OpenTelemetry vars (`OTEL_EXPORTER_OTLP_ENDPOINT`,
-   `OTEL_SERVICE_NAME`).
+4. Optional OpenTelemetry vars (`HARNESS_OTEL_ENDPOINT`,
+   `HARNESS_OTEL_SERVICE_NAME`, `HARNESS_OTEL_SAMPLE_RATIO`).
+
+For v0.6.0 we intentionally use **Option A**: deployment recipes use
+`HARNESS_OTEL_*` env vars only. This prefix is by design to avoid
+accidental capture from ambient OTel SDK environment variables.
 
 ## Sizing
 
