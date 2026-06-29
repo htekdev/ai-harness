@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -100,4 +101,129 @@ func hasSection(sections []contextSection, name string) bool {
 		}
 	}
 	return false
+}
+
+// --- context list subcommand tests -----------------------------------
+
+// minimalIdentity returns a minimal valid identity.md frontmatter body.
+// The caller may append context.sources before the closing ---.
+func minimalIdentityWithSources(sources string) string {
+	return `---
+model:
+  name: gpt-4o
+  provider: openai
+  max_tokens: 4096
+  temperature: 0.7
+  api_key_env: OPENAI_API_KEY
+context:
+  max_history: 50
+  max_tokens: 128000
+` + sources + `delegation:
+  max_depth: 3
+  max_concurrent: 5
+  iterations_per_depth: [20, 10, 5, 3]
+meta:
+  max_tools: 50
+  max_hooks: 30
+  max_agents: 10
+  max_call_depth: 5
+---
+`
+}
+
+func TestCmdContextList_NoSources(t *testing.T) {
+	tmp := t.TempDir()
+
+	writeContextFile(t, filepath.Join(tmp, ".harness", "identity.md"),
+		minimalIdentityWithSources(""))
+
+	out := captureContextStdout(t, func() {
+		if err := cmdContext([]string{"list", "--dir", tmp}); err != nil {
+			t.Fatalf("cmdContext list: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No context sources configured") {
+		t.Errorf("expected 'No context sources configured', got:\n%s", out)
+	}
+}
+
+func TestCmdContextList_ShowsInactiveSource(t *testing.T) {
+	tmp := t.TempDir()
+
+	writeContextFile(t, filepath.Join(tmp, ".harness", "context", "pr.md"), "# PR Rules\nReview carefully.")
+	writeContextFile(t, filepath.Join(tmp, ".harness", "identity.md"),
+		minimalIdentityWithSources(`  sources:
+    - name: pr-workflow
+      type: file
+      path: ".harness/context/pr.md"
+      when: 'ctx.get("mode") == "pull_request"'
+`))
+
+	// Without --ctx mode=pull_request the source should be inactive.
+	out := captureContextStdout(t, func() {
+		if err := cmdContext([]string{"list", "--dir", tmp}); err != nil {
+			t.Fatalf("cmdContext list: %v", err)
+		}
+	})
+	if !strings.Contains(out, "pr-workflow") {
+		t.Errorf("expected pr-workflow in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "INACTIVE") {
+		t.Errorf("expected INACTIVE section, got:\n%s", out)
+	}
+}
+
+func TestCmdContextList_ShowsActiveSource(t *testing.T) {
+	tmp := t.TempDir()
+
+	writeContextFile(t, filepath.Join(tmp, ".harness", "context", "pr.md"), "# PR Rules\nReview carefully.")
+	writeContextFile(t, filepath.Join(tmp, ".harness", "identity.md"),
+		minimalIdentityWithSources(`  sources:
+    - name: pr-workflow
+      type: file
+      path: ".harness/context/pr.md"
+      when: 'ctx.get("mode") == "pull_request"'
+`))
+
+	// With --ctx mode=pull_request the source should be active.
+	out := captureContextStdout(t, func() {
+		if err := cmdContext([]string{"list", "--dir", tmp, "--ctx", "mode=pull_request"}); err != nil {
+			t.Fatalf("cmdContext list --ctx: %v", err)
+		}
+	})
+	if !strings.Contains(out, "ACTIVE") {
+		t.Errorf("expected ACTIVE section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "pr-workflow") {
+		t.Errorf("expected pr-workflow in output, got:\n%s", out)
+	}
+}
+
+func TestCmdContextList_ActiveOnly(t *testing.T) {
+	tmp := t.TempDir()
+
+	writeContextFile(t, filepath.Join(tmp, ".harness", "context", "always.md"), "Always here.")
+	writeContextFile(t, filepath.Join(tmp, ".harness", "context", "pr.md"), "PR rules.")
+	writeContextFile(t, filepath.Join(tmp, ".harness", "identity.md"),
+		minimalIdentityWithSources(`  sources:
+    - name: always
+      type: file
+      path: ".harness/context/always.md"
+    - name: pr-workflow
+      type: file
+      path: ".harness/context/pr.md"
+      when: 'ctx.get("mode") == "pull_request"'
+`))
+
+	out := captureContextStdout(t, func() {
+		if err := cmdContext([]string{"list", "--dir", tmp, "--active"}); err != nil {
+			t.Fatalf("cmdContext list --active: %v", err)
+		}
+	})
+	if strings.Contains(out, "INACTIVE") {
+		t.Errorf("--active flag should suppress INACTIVE section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "always") {
+		t.Errorf("expected always-on source in output, got:\n%s", out)
+	}
 }

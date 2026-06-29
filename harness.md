@@ -22,6 +22,17 @@ delegation:
 context:
   max_history: 50
   max_tokens: 128000
+  sources:
+    - name: pr-workflow
+      type: file
+      path: ".harness/context/pr-workflow.md"
+      when: 'ctx.get("mode") == "pull_request"'
+      priority: 10
+    - name: python-conventions
+      type: file
+      path: ".harness/context/python-conventions.md"
+      when: '"*.py" in ctx.get("active_files", [])'
+      priority: 20
 ---
 
 # AI Harness Agent

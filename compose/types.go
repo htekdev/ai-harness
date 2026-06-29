@@ -67,8 +67,22 @@ type DelegationPolicy struct {
 }
 
 type ContextPolicy struct {
-	MaxHistory int `yaml:"max_history"`
-	MaxTokens  int `yaml:"max_tokens"`
+	MaxHistory int                `yaml:"max_history"`
+	MaxTokens  int                `yaml:"max_tokens"`
+	Sources    []ContextSourceDef `yaml:"sources,omitempty"`
+}
+
+// ContextSourceDef is the serialisable declaration of a context source,
+// configured in identity.md frontmatter under context.sources.
+type ContextSourceDef struct {
+	Name     string `yaml:"name"`
+	Type     string `yaml:"type"`
+	Path     string `yaml:"path"`
+	When     string `yaml:"when,omitempty"`
+	Trigger  string `yaml:"trigger,omitempty"`
+	Priority int    `yaml:"priority,omitempty"`
+	Scope    string `yaml:"scope,omitempty"`
+	TTL      int    `yaml:"ttl,omitempty"`
 }
 
 type MetaPolicy struct {
