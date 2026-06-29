@@ -172,6 +172,9 @@ func TestCLIInspect(t *testing.T) {
 	if !strings.Contains(output, "Hooks") {
 		t.Errorf("inspect output missing Hooks section, got: %s", output)
 	}
+	if !strings.Contains(output, "core_identity") {
+		t.Errorf("inspect output missing core identity token accounting, got: %s", output)
+	}
 }
 
 func TestCLIUnknownCommand(t *testing.T) {

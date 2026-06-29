@@ -90,6 +90,9 @@ func TestParseDefaults(t *testing.T) {
 	if cfg.Context.MaxHistory != 50 {
 		t.Fatalf("expected default max_history 50, got %d", cfg.Context.MaxHistory)
 	}
+	if cfg.Context.CoreIdentity != "enabled" {
+		t.Fatalf("expected default core_identity enabled, got %q", cfg.Context.CoreIdentity)
+	}
 }
 
 func TestParseJSON(t *testing.T) {
@@ -202,5 +205,39 @@ func TestParseRejectsInvalidConfig(t *testing.T) {
 	_, err := Parse([]byte("model:\n  temperature: 9\n"))
 	if err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestParseContextCoreIdentity(t *testing.T) {
+	cfg, err := Parse([]byte(`
+model:
+  name: gpt-4o-mini
+  max_tokens: 1024
+  temperature: 0.3
+context:
+  core_identity: minimal
+`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Context.CoreIdentity != "minimal" {
+		t.Fatalf("expected core_identity minimal, got %q", cfg.Context.CoreIdentity)
+	}
+}
+
+func TestParseRejectsInvalidCoreIdentity(t *testing.T) {
+	_, err := Parse([]byte(`
+model:
+  name: gpt-4o-mini
+  max_tokens: 1024
+  temperature: 0.3
+context:
+  core_identity: nope
+`))
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "context.core_identity") {
+		t.Fatalf("expected core_identity validation error, got %v", err)
 	}
 }

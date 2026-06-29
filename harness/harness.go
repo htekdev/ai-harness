@@ -215,8 +215,10 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 	taskStore := delegation.NewTaskStore(maxConc, 5*time.Minute)
 
+	composedSystemPrompt := ComposeSystemPrompt(cfg.Context.SystemPrompt, cfg.Context.CoreIdentity)
+
 	ctxMgr := agentctx.NewManager(agentctx.Config{
-		SystemPrompt: cfg.Context.SystemPrompt,
+		SystemPrompt: composedSystemPrompt,
 		MaxMessages:  cfg.Context.MaxHistory,
 		MaxTokens:    cfg.Context.MaxTokens,
 	})
@@ -226,7 +228,7 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 		Client:             client,
 		Engine:             engine,
 		HookSystem:         hookSystem,
-		SystemPrompt:       cfg.Context.SystemPrompt,
+		SystemPrompt:       composedSystemPrompt,
 		Logger:             Logger().With("component", "delegate"),
 		MaxDepth:           cfg.Delegation.MaxDepth,
 		IterationsPerDepth: cfg.Delegation.IterationsPerDepth,
@@ -310,7 +312,7 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	// note so the LLM is aware it can extend its own harness. We do this
 	// AFTER the ctxMgr is constructed so we don't disturb the original
 	// cfg.Context.SystemPrompt that gets persisted/audited elsewhere.
-	if augmented := augmentSystemPromptForSelfAugment(cfg.Context.SystemPrompt); augmented != cfg.Context.SystemPrompt {
+	if augmented := augmentSystemPromptForSelfAugment(composedSystemPrompt); augmented != composedSystemPrompt {
 		ctxMgr.SetSystemPrompt(augmented)
 	}
 

@@ -83,6 +83,7 @@ type ContextConfig struct {
 	MaxHistory   int    `yaml:"max_history" json:"max_history"`
 	MaxTokens    int    `yaml:"max_tokens" json:"max_tokens"`
 	SystemPrompt string `yaml:"system_prompt" json:"system_prompt"`
+	CoreIdentity string `yaml:"core_identity,omitempty" json:"core_identity,omitempty"`
 }
 
 // ToolsPolicyConfig declares per-session governance over which registered
@@ -187,6 +188,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Context.MaxTokens == 0 {
 		cfg.Context.MaxTokens = 128000
 	}
+	if strings.TrimSpace(cfg.Context.CoreIdentity) == "" {
+		cfg.Context.CoreIdentity = "enabled"
+	}
 }
 
 // Validate ensures the configuration is internally consistent.
@@ -253,6 +257,11 @@ func (c *Config) Validate() error {
 
 	if err := c.Serve.Validate(); err != nil {
 		issues = append(issues, err.Error())
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Context.CoreIdentity)) {
+	case "", "enabled", "minimal", "disabled":
+	default:
+		issues = append(issues, fmt.Sprintf("context.core_identity %q must be enabled|minimal|disabled", c.Context.CoreIdentity))
 	}
 
 	if len(issues) > 0 {
