@@ -27,6 +27,7 @@
 - [Production Deployment](./guides/deployment.md)
 - [Observability with OpenTelemetry](./guides/observability.md)
 - [Network Sandboxing](./guides/network-sandbox.md)
+- [Bidirectional Telegram Integration](./guides/serve.md)
 
 # Reference
 
