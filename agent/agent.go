@@ -177,6 +177,23 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 	a.turnNumber++
 	scripting.SetTurnState(turnCtx, "turn", a.turnNumber)
 
+	// Attach a fresh async graph to the context (Phase 3: Loop-Boundary Barrier).
+	// Tool scripts may call async.launch() to register deferred tool executions.
+	// The barrier at turn end flushes any remaining pending placeholders.
+	reg := a.tools
+	turnCtx = scripting.WithAsyncState(turnCtx, func(dispatchCtx context.Context, toolName string, toolArgs json.RawMessage) (string, error) {
+		call := tools.Call{
+			ID:        fmt.Sprintf("async-%s", toolName),
+			Name:      toolName,
+			Arguments: toolArgs,
+		}
+		r := reg.Execute(dispatchCtx, call)
+		if r.IsError {
+			return "", fmt.Errorf("%s", r.Content)
+		}
+		return r.Content, nil
+	})
+
 	// Open the agent.turn span. Attributes that aren't known until completion
 	// (token counts, iterations) are added in the deferred finalizer.
 	turnCtx, span := otel.Tracer(tracerName).Start(turnCtx, "agent.turn",
@@ -433,6 +450,13 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 
 	if !completed {
 		return nil, errs.Newf(errs.KindCompletion, "agent.run", "max tool iterations reached (%d)", a.maxToolIterations)
+	}
+
+	// Loop-Boundary Barrier (Phase 3): flush any async placeholders that were
+	// registered by tool scripts during this turn but not yet executed via
+	// async.wait_all / async.race. This is a no-op if the graph is empty.
+	if flushErr := scripting.FlushAsync(turnCtx); flushErr != nil {
+		a.logger.Warn("async barrier flush failed", "turn", a.turnNumber, "error", flushErr)
 	}
 
 	// Fire turn.end hook

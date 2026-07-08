@@ -209,6 +209,9 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		result["meta"] = e.makeMetaModule()
 	}
 
+	// Add async module (always available; requires WithAsyncState on the context to operate).
+	result["async"] = e.makeAsyncModule()
+
 	return result
 }
 

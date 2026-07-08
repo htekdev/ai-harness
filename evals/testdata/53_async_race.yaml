@@ -1,0 +1,59 @@
+name: "async-race"
+description: >
+  Tool script uses async.race to dispatch two alternative calls and return the
+  first successful result. Validates the speculative execution pattern where
+  the fastest competitor wins and the others are cancelled.
+category: "async"
+model: "gpt-4o-mini"
+max_tokens: 600
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a lookup assistant. When asked to find information, use the
+    race_lookup tool which tries multiple sources and returns the fastest result.
+  tools:
+    - name: source_primary
+      description: "Query the primary data source"
+      parameters:
+        query: { type: string, description: "Search query", required: true }
+      script: |
+        def run(args):
+          return "primary-result:" + args["query"]
+
+    - name: source_fallback
+      description: "Query the fallback data source"
+      parameters:
+        query: { type: string, description: "Search query", required: true }
+      script: |
+        def run(args):
+          return "fallback-result:" + args["query"]
+
+    - name: race_lookup
+      description: >
+        Race two data sources for the same query and return whichever
+        responds first. Uses async.race for speculative execution.
+      parameters:
+        query: { type: string, description: "Query to look up", required: true }
+      script: |
+        def run(args):
+          q = args["query"]
+          ref_primary  = async.launch("source_primary",  {"query": q})
+          ref_fallback = async.launch("source_fallback", {"query": q})
+          winner = async.race([ref_primary, ref_fallback])
+          return "winner: " + winner
+
+turns:
+  - role: user
+    content: "Look up 'golang' using race_lookup."
+
+grade:
+  - type: tool_called
+    tool: race_lookup
+    args_contain:
+      query: "golang"
+  - type: response_contains
+    value: "golang"
+  - type: response_contains
+    value: "result"
+  - type: no_errors
