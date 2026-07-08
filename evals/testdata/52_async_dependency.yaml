@@ -1,0 +1,72 @@
+name: "async-dependency"
+description: >
+  Tool script uses async.launch with depends_on to form an A → B → C sequential
+  dependency chain. Validates that dependency ordering is respected:
+  B does not start until A completes, C does not start until B completes.
+category: "async"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a pipeline assistant. When asked to run a pipeline, use the
+    run_pipeline tool to execute steps in the correct order.
+  tools:
+    - name: step_a
+      description: "Execute pipeline step A"
+      parameters:
+        input: { type: string, description: "Input value", required: true }
+      script: |
+        def run(args):
+          return "A(" + args["input"] + ")"
+
+    - name: step_b
+      description: "Execute pipeline step B, depends on A's output"
+      parameters:
+        input: { type: string, description: "Input value", required: true }
+      script: |
+        def run(args):
+          return "B(" + args["input"] + ")"
+
+    - name: step_c
+      description: "Execute pipeline step C, depends on B's output"
+      parameters:
+        input: { type: string, description: "Input value", required: true }
+      script: |
+        def run(args):
+          return "C(" + args["input"] + ")"
+
+    - name: run_pipeline
+      description: "Run a 3-step sequential pipeline A → B → C with dependency chaining"
+      parameters:
+        seed: { type: string, description: "Initial seed value for the pipeline", required: true }
+      script: |
+        def run(args):
+          seed = args["seed"]
+          # Step A has no dependencies
+          ref_a = async.launch("step_a", {"input": seed})
+          # Step B depends on A completing first
+          ref_b = async.launch("step_b", {"input": seed}, depends_on=[ref_a])
+          # Step C depends on B completing first
+          ref_c = async.launch("step_c", {"input": seed}, depends_on=[ref_b])
+          # wait_all resolves in dependency order: A → B → C
+          results = async.wait_all([ref_a, ref_b, ref_c])
+          return "pipeline: " + " -> ".join(results)
+
+turns:
+  - role: user
+    content: "Run the pipeline with seed value 'start'. Call run_pipeline."
+
+grade:
+  - type: tool_called
+    tool: run_pipeline
+    args_contain:
+      seed: "start"
+  - type: response_contains
+    value: "A(start)"
+  - type: response_contains
+    value: "B(start)"
+  - type: response_contains
+    value: "C(start)"
+  - type: no_errors

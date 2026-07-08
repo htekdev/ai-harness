@@ -1,0 +1,50 @@
+name: "async-fanout"
+description: >
+  Tool script uses async.launch to fan-out 5 parallel data-fetches, then
+  async.wait_all to fan-in all results before returning to the model.
+  Validates the Loop-Boundary Barrier pattern for independent parallel calls.
+category: "async"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a data aggregation assistant. When asked to fetch multiple items,
+    use the fetch_all tool to retrieve them in parallel and summarize the results.
+  tools:
+    - name: fetch_data
+      description: "Fetch a single data item by ID"
+      parameters:
+        id: { type: string, description: "Item ID to fetch", required: true }
+      script: |
+        def run(args):
+          id = args["id"]
+          return "data:" + id
+
+    - name: fetch_all
+      description: "Fan-out to fetch multiple items in parallel and return all results"
+      parameters:
+        ids: { type: string, description: "Comma-separated list of item IDs", required: true }
+      script: |
+        def run(args):
+          ids = args["ids"].split(",")
+          refs = []
+          for id in ids:
+            ref = async.launch("fetch_data", {"id": id.strip()})
+            refs.append(ref)
+          results = async.wait_all(refs)
+          return json.encode(results)
+
+turns:
+  - role: user
+    content: "Fetch all five items: alpha, beta, gamma, delta, epsilon. Use fetch_all."
+
+grade:
+  - type: tool_called
+    tool: fetch_all
+  - type: response_contains
+    value: "alpha"
+  - type: response_contains
+    value: "beta"
+  - type: no_errors
