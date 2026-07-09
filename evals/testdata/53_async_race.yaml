@@ -1,0 +1,61 @@
+name: "async-race"
+description: "Speculative execution: race two searches and return the faster result"
+category: "async"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a search assistant. When asked to search for information,
+    use the fast_search tool which races two search backends and returns
+    whichever responds first.
+  tools:
+    - name: fast_search
+      description: "Race two search backends; return whichever responds first"
+      parameters:
+        query: { type: string, description: "Search query", required: true }
+      script: |
+        def run(args):
+          query = args.get("query", "")
+
+          # Launch two competing search backends
+          ref_a = parallel.launch("search_backend_a", {"query": query})
+          ref_b = parallel.launch("search_backend_b", {"query": query})
+
+          # Race: first one wins, loser is cancelled
+          winner = parallel.race([ref_a, ref_b])
+
+          if winner["is_error"]:
+            return "Search failed: " + winner["result"]
+
+          return "Search result (from " + winner["tool"] + "): " + winner["result"]
+
+    - name: search_backend_a
+      description: "Search backend A (fast)"
+      parameters:
+        query: { type: string, description: "Query", required: true }
+      script: |
+        def run(args):
+          return "backend_a: result for '" + args.get("query", "") + "'"
+
+    - name: search_backend_b
+      description: "Search backend B (also fast)"
+      parameters:
+        query: { type: string, description: "Query", required: true }
+      script: |
+        def run(args):
+          return "backend_b: result for '" + args.get("query", "") + "'"
+
+turns:
+  - role: user
+    content: "Search for information about async programming patterns."
+
+grade:
+  - type: tool_called
+    tool: fast_search
+  - type: response_contains
+    value: "Search result"
+  - type: response_contains
+    value: "async programming"
+  - type: no_errors

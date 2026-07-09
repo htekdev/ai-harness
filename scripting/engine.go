@@ -193,6 +193,7 @@ func (e *Engine) makeBuiltins() starlark.StringDict {
 		"fs":       fsMod,
 		"ctx":      ctxModule(),
 		"exec":     execModule(),
+		"parallel": asyncModule(),
 		"env":      starlark.NewBuiltin("env", builtinEnv),
 		"log":      starlark.NewBuiltin("log", builtinLog),
 		"assert":   starlark.NewBuiltin("assert", builtinAssert),

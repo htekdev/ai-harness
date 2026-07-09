@@ -32,7 +32,17 @@ const (
 	// same delegate (Ralph loop) up to MaxVerifyRetries with the
 	// failure reason injected. See issue #103.
 	EventDelegatePostVerify Event = "delegation.post_verify"
-	EventError              Event = "error"
+	// EventAsyncLaunch fires when an async tool call is dispatched via
+	// async.launch(). The payload is an AsyncLaunchPayload.
+	EventAsyncLaunch Event = "async.launch"
+	// EventAsyncComplete fires when an async placeholder resolves
+	// (complete or error). The payload is an AsyncCompletePayload.
+	EventAsyncComplete Event = "async.complete"
+	// EventAsyncBarrier fires at the loop-boundary barrier before the next
+	// LLM completion — after all pending async work has been drained.
+	// Payload is the count of resolved placeholders (int).
+	EventAsyncBarrier Event = "async.barrier"
+	EventError        Event = "error"
 )
 
 const CustomEventPrefix = "custom."
@@ -98,6 +108,9 @@ func ValidEvents() []Event {
 		EventDelegatePre,
 		EventDelegatePost,
 		EventDelegatePostVerify,
+		EventAsyncLaunch,
+		EventAsyncComplete,
+		EventAsyncBarrier,
 		EventError,
 	}
 }
@@ -125,6 +138,21 @@ func IsCustomEvent(event string) bool {
 }
 
 type dispatcherContextKey struct{}
+
+// AsyncLaunchPayload is the hook payload for EventAsyncLaunch.
+type AsyncLaunchPayload struct {
+	PlaceholderID string `json:"placeholder_id"`
+	ToolName      string `json:"tool_name"`
+}
+
+// AsyncCompletePayload is the hook payload for EventAsyncComplete.
+type AsyncCompletePayload struct {
+	PlaceholderID string `json:"placeholder_id"`
+	ToolName      string `json:"tool_name"`
+	State         string `json:"state"` // "complete" | "error" | "cancelled"
+	Result        string `json:"result,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
 
 // WithDispatcher stores the hook system on a context so scripts can emit custom events.
 func WithDispatcher(ctx context.Context, system *System) context.Context {
