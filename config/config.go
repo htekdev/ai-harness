@@ -21,9 +21,20 @@ type Config struct {
 	ToolsPolicy *ToolsPolicyConfig `yaml:"tools_policy,omitempty" json:"tools_policy,omitempty"`
 	Hooks       []HookConfig       `yaml:"hooks" json:"hooks"`
 	Delegation  DelegationConfig   `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+	Async       *AsyncConfig       `yaml:"async,omitempty" json:"async,omitempty"`
 	Meta        *MetaBuiltinConfig `yaml:"meta,omitempty" json:"meta,omitempty"`
 	Serve       *ServeConfig       `yaml:"serve,omitempty" json:"serve,omitempty"`
 	Network     *NetworkConfig     `yaml:"network,omitempty" json:"network,omitempty"`
+}
+
+// AsyncConfig configures the async tool execution engine (Phase 3).
+//
+// When this block is omitted, async tool calls are still available but
+// max_concurrent defaults to 64.
+type AsyncConfig struct {
+	// MaxConcurrent caps the number of simultaneously running async tool
+	// executions per turn. 0 means use the default (64).
+	MaxConcurrent int `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
 }
 
 // NetworkConfig configures the harness network sandbox enforced by the

@@ -138,6 +138,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "async":
+		if err := cmdAsync(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "context":
 		if err := cmdContext(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -174,6 +179,7 @@ Develop:
   hooks      List registered hooks
   agents     List configured agents
   artifacts  List typed artifacts in the registry
+  async      Async tool calling (Phase 3) — list config and primitives
   context    Show context window observability snapshot
 
 Other:

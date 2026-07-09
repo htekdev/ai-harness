@@ -292,11 +292,12 @@ func NewFromConfig(cfg *config.Config, agents map[string]*config.AgentConfig) (*
 	}
 
 	h.agent = agent.New(agent.Options{
-		Client:  client,
-		Tools:   registry,
-		Hooks:   hookSystem,
-		Context: ctxMgr,
-		Logger:  Logger().With("component", "harness"),
+		Client:             client,
+		Tools:              registry,
+		Hooks:              hookSystem,
+		Context:            ctxMgr,
+		Logger:             Logger().With("component", "harness"),
+		AsyncMaxConcurrent: asyncMaxConcurrent(cfg),
 	})
 
 	// Register self-augmenting meta-tools (Phase 5.8). These let the
@@ -461,4 +462,13 @@ func agentNames(agents map[string]*config.AgentConfig) []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// asyncMaxConcurrent returns the configured async.max_concurrent limit from the
+// harness config, or 0 (executor default) if the async block is absent.
+func asyncMaxConcurrent(cfg *config.Config) int {
+	if cfg.Async == nil {
+		return 0
+	}
+	return cfg.Async.MaxConcurrent
 }

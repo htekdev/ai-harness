@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/htekdev/ai-harness/artifact"
+	"github.com/htekdev/ai-harness/async"
 	"github.com/htekdev/ai-harness/completion"
 	agentctx "github.com/htekdev/ai-harness/context"
 	"github.com/htekdev/ai-harness/harness/errs"
@@ -40,6 +41,7 @@ type Agent struct {
 	maxToolIterations int
 	composer          *artifact.Composer
 	turnNumber        int
+	asyncMaxConcurrent int
 }
 
 // Options configures the agent.
@@ -54,6 +56,10 @@ type Options struct {
 	MaxToolIterations int
 	// Composer, if provided, will have EvaluateConditions called at the start of each turn.
 	Composer *artifact.Composer
+	// AsyncMaxConcurrent caps the number of simultaneously running async
+	// tool calls per turn (via async.launch in Starlark scripts).
+	// 0 means use the executor default (64).
+	AsyncMaxConcurrent int
 }
 
 // New creates a new Agent with the given options.
@@ -73,13 +79,14 @@ func New(opts Options) *Agent {
 	}
 
 	return &Agent{
-		client:            opts.Client,
-		tools:             opts.Tools,
-		hooks:             opts.Hooks,
-		context:           opts.Context,
-		logger:            opts.Logger,
-		maxToolIterations: maxIter,
-		composer:          opts.Composer,
+		client:             opts.Client,
+		tools:              opts.Tools,
+		hooks:              opts.Hooks,
+		context:            opts.Context,
+		logger:             opts.Logger,
+		maxToolIterations:  maxIter,
+		composer:           opts.Composer,
+		asyncMaxConcurrent: opts.AsyncMaxConcurrent,
 	}
 }
 
@@ -172,6 +179,10 @@ func normalizeHookPayload(m map[string]interface{}, target any) any {
 // context through hooks/tools/delegation.
 func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult, err error) {
 	turnCtx := hooks.WithDispatcher(scripting.WithTurnState(ctx), a.hooks)
+
+	// Attach a per-turn async executor so Starlark scripts can use async.launch().
+	asyncExec := async.NewExecutor(a.asyncMaxConcurrent, a.tools)
+	turnCtx = async.WithExecutor(turnCtx, asyncExec)
 
 	// Increment turn counter and populate turn state
 	a.turnNumber++
@@ -415,6 +426,13 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (result *TurnResult
 		}
 
 		wg.Wait()
+
+		// Loop-boundary barrier: drain any async work launched by tool
+		// scripts via async.launch(). This ensures all async tasks from
+		// this iteration complete before results are fed back to the LLM.
+		a.hooks.Dispatch(turnCtx, hooks.EventAsyncBarrier, asyncExec.Pending())
+		asyncExec.Barrier(turnCtx)
+		a.hooks.Dispatch(turnCtx, hooks.EventAsyncBarrier, len(asyncExec.Snapshot()))
 
 		// Collect results in order and add to context
 		for _, er := range execResults {

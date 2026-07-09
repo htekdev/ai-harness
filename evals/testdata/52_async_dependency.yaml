@@ -1,0 +1,73 @@
+name: "async-dependency-chain"
+description: "Execute A → B → C dependency chain where each step uses the previous result"
+category: "async"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a pipeline assistant. When asked to run a three-stage data pipeline,
+    use the run_pipeline tool which chains stages using async dependency ordering.
+  tools:
+    - name: run_pipeline
+      description: "Run a 3-stage async pipeline: fetch → transform → store"
+      parameters:
+        input: { type: string, description: "Input data for the pipeline", required: true }
+      script: |
+        def run(args):
+          raw = args.get("input", "data")
+
+          # Stage A: fetch/validate input
+          ref_a = parallel.launch("stage_fetch", {"data": raw})
+          fetched_results = parallel.wait_all([ref_a])
+          fetched = fetched_results[0]["result"]
+
+          # Stage B: transform — depends on A completing first
+          ref_b = parallel.launch("stage_transform", {"data": fetched}, depends_on=[ref_a])
+          transformed_results = parallel.wait_all([ref_b])
+          transformed = transformed_results[0]["result"]
+
+          # Stage C: store — depends on B completing
+          ref_c = parallel.launch("stage_store", {"data": transformed}, depends_on=[ref_b])
+          stored_results = parallel.wait_all([ref_c])
+          stored = stored_results[0]["result"]
+
+          return "Pipeline complete: " + stored
+
+    - name: stage_fetch
+      description: "Stage A: fetch and validate data"
+      parameters:
+        data: { type: string, description: "Raw input", required: true }
+      script: |
+        def run(args):
+          return "fetched[" + args.get("data", "") + "]"
+
+    - name: stage_transform
+      description: "Stage B: transform data"
+      parameters:
+        data: { type: string, description: "Fetched data", required: true }
+      script: |
+        def run(args):
+          return "transformed[" + args.get("data", "") + "]"
+
+    - name: stage_store
+      description: "Stage C: store final result"
+      parameters:
+        data: { type: string, description: "Transformed data", required: true }
+      script: |
+        def run(args):
+          return "stored[" + args.get("data", "") + "]"
+
+turns:
+  - role: user
+    content: "Run the data pipeline with input 'sensor_readings'."
+
+grade:
+  - type: tool_called
+    tool: run_pipeline
+  - type: response_contains
+    value: "Pipeline complete"
+  - type: response_contains
+    value: "stored"
+  - type: no_errors

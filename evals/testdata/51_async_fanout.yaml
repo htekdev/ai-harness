@@ -1,0 +1,62 @@
+name: "async-fanout"
+description: "Fan-out 5 parallel async tool calls and fan-in results"
+category: "async"
+model: "gpt-4o-mini"
+max_tokens: 800
+timeout: "45s"
+
+setup:
+  system_prompt: |
+    You are a data aggregation assistant. When asked to gather data from
+    multiple sources simultaneously, use the gather_all tool which calls
+    all sources in parallel via async primitives and returns combined results.
+  tools:
+    - name: gather_all
+      description: "Gather data from 5 sources in parallel using async fan-out"
+      parameters:
+        query: { type: string, description: "Query to send to each source", required: true }
+      script: |
+        def run(args):
+          query = args.get("query", "status")
+
+          # Fan-out: launch 5 parallel calls
+          refs = []
+          for i in range(1, 6):
+            ref = parallel.launch("fetch_source", {"source": "source_" + str(i), "query": query})
+            refs.append(ref)
+
+          # Fan-in: wait for all results
+          results = parallel.wait_all(refs)
+
+          parts = []
+          for r in results:
+            if r["is_error"]:
+              parts.append(r["tool"] + ": ERROR - " + r["result"])
+            else:
+              parts.append(r["result"])
+
+          return "Gathered from 5 sources: " + ", ".join(parts)
+
+    - name: fetch_source
+      description: "Fetch data from a single source"
+      parameters:
+        source: { type: string, description: "Source identifier", required: true }
+        query:  { type: string, description: "Query string", required: true }
+      script: |
+        def run(args):
+          source = args.get("source", "unknown")
+          query  = args.get("query",  "status")
+          return source + ":" + query + ":ok"
+
+turns:
+  - role: user
+    content: "Gather the current status from all 5 data sources."
+
+grade:
+  - type: tool_called
+    tool: gather_all
+  - type: response_contains
+    value: "source_1"
+  - type: response_contains
+    value: "source_5"
+  - type: no_errors
