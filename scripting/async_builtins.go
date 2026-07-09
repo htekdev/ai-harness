@@ -44,7 +44,7 @@ func resultToStarlark(r async.Result) starlark.Value {
 	return d
 }
 
-// asyncModule returns the async.* Starlark module.
+// asyncModule returns the parallel.* Starlark module.
 // Note: the Starlark variable name is "parallel" (not "async") because
 // "async" is a reserved keyword in the Starlark language specification.
 func asyncModule() starlark.Value {
@@ -69,7 +69,7 @@ func requireExecutor(thread *starlark.Thread, caller string) (*async.Executor, c
 	return exec, ctx, nil
 }
 
-// builtinAsyncLaunch implements async.launch(tool, args, depends_on=[]).
+// builtinAsyncLaunch implements parallel.launch(tool, args, depends_on=[]).
 //
 //	tool      - string, the registered tool name to invoke
 //	args      - dict, the arguments to pass (will be JSON-encoded)
@@ -123,7 +123,7 @@ func builtinAsyncLaunch(thread *starlark.Thread, _ *starlark.Builtin, args starl
 	return &placeholderValue{p: p}, nil
 }
 
-// builtinAsyncWaitAll implements async.wait_all(refs) → list of result structs.
+// builtinAsyncWaitAll implements parallel.wait_all(refs) → list of result dicts.
 func builtinAsyncWaitAll(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var refsVal starlark.Value
 	if err := starlark.UnpackArgs("parallel.wait_all", args, kwargs, "refs", &refsVal); err != nil {
@@ -149,7 +149,7 @@ func builtinAsyncWaitAll(thread *starlark.Thread, _ *starlark.Builtin, args star
 	return starlark.NewList(out), nil
 }
 
-// builtinAsyncWaitAny implements async.wait_any(refs) → first result struct.
+// builtinAsyncWaitAny implements parallel.wait_any(refs) → first result dict.
 func builtinAsyncWaitAny(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var refsVal starlark.Value
 	if err := starlark.UnpackArgs("parallel.wait_any", args, kwargs, "refs", &refsVal); err != nil {
@@ -170,7 +170,7 @@ func builtinAsyncWaitAny(thread *starlark.Thread, _ *starlark.Builtin, args star
 	return resultToStarlark(result), nil
 }
 
-// builtinAsyncRace implements async.race(refs) → first result struct, cancels losers.
+// builtinAsyncRace implements parallel.race(refs) → first result dict, cancels losers.
 func builtinAsyncRace(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var refsVal starlark.Value
 	if err := starlark.UnpackArgs("parallel.race", args, kwargs, "refs", &refsVal); err != nil {
